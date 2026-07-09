@@ -1,3 +1,4 @@
 parts/
 archive/
 .env
+.codegraph/
