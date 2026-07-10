@@ -2,3 +2,5 @@ parts/
 archive/
 .env
 .codegraph/
+.wolf/
+.claude/
