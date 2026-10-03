@@ -1,0 +1,328 @@
+#!/usr/bin/env node
+// REUSE_CHECKED: 4_agents/sh/thinking/wiki/domains/clients/atomcamp/mashreq-agile-coaches/source/motion/video/render.py   its render, narration mux and transcript steps are ported here; riyadh package.json render/whatsapp npm scripts are the encode settings
+// The one command for the video engine (video-gen). A scene folder in, an mp4 out. Run with no args for help.
+// Scenes, brands, out/, registry.csv and cost-log.csv live in the consumer repo (the folder that holds scenes/); this engine holds none of them.
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpus } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mjs";
+import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
+
+const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const STALE_DAYS = 60;
+const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
+
+const HELP = `video: the video engine (video-gen)
+
+Usage:
+  video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat
+  video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
+  video voice  <scene>   narration only: synthesise changed beats, retime the scene from the audio
+  video studio <scene>   open the scene in Remotion Studio to preview while editing
+  video list             every video in the registry, stale ones (${STALE_DAYS}+ days) flagged
+  video archive <name>   move a stale video's scene folder to archive/
+
+<scene> is a scene folder (any path), its scene.json, or a name under <root>/scenes/{client,promo}/.
+The consumer root is the folder that holds the scene's scenes/ folder. Its brands/, out/, registry.csv and
+cost-log.csv are used; brands the root lacks are looked up in this engine's brands/.
+Before every render a pre-render checklist runs and prints PASS or FAIL per item; any FAIL exits 2.
+
+Flags:
+  --draft        30fps, no blur, no LinkedIn cut: fast check of timing and layout
+  --fps N        master frame rate (default 60)
+  --blur N       motion blur subframes per output frame (default 2, 1 = off)
+  --beats 0,3,5  stills: which beats become slides (default all)
+  --tokens N     model tokens spent making this video, for cost-log.csv
+  --force        voice: re-synthesise every beat
+  --out DIR      render into DIR/<area>/<name>/ instead of <root>/out (registry.csv is then left alone)
+  --root DIR     consumer root for list, archive and name lookups (default: current directory)
+
+Examples:
+  bin/video render ~/repos/content-thinking/video/scenes/promo/my-offer --tokens 180000
+  bin/video render my-offer --root ~/repos/content-thinking/video --draft
+  bin/video stills riyadh-day3 --beats 1,2,3
+`;
+
+class UserError extends Error {}
+const fail = (msg) => { throw new UserError(msg); };
+const log = (msg) => process.stderr.write(msg + "\n");
+
+function parseArgs(argv) {
+  const [cmd, target, ...rest] = argv;
+  const flags = {};
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (!a.startsWith("--")) fail(`unexpected argument "${a}". Flags start with --; see: bin/video --help`);
+    const key = a.slice(2);
+    if (["draft", "force"].includes(key)) flags[key] = true;
+    else if (["fps", "blur", "beats", "tokens", "out", "root"].includes(key)) flags[key] = rest[++i] ?? fail(`--${key} needs a value`);
+    else fail(`unknown flag --${key}. Known: --draft --fps --blur --beats --tokens --force --out --root`);
+  }
+  return { cmd, target, flags };
+}
+
+function findScene(target, rootFlag) {
+  if (!target) fail("which scene? e.g. bin/video render <path-to-scene-folder> (bin/video list --root <dir> shows the registry)");
+  const direct = [...new Set([resolve(target), resolve(KIT, target)])].map((p) => (p.endsWith(".json") ? dirname(p) : p));
+  for (const p of direct) if (existsSync(join(p, "scene.json"))) return p;
+  const root = resolve(rootFlag ?? ".");
+  for (const area of ["client", "promo"]) {
+    const p = join(root, "scenes", area, target);
+    if (existsSync(join(p, "scene.json"))) return p;
+  }
+  fail(`no scene.json for "${target}". Looked in ${direct.join(", ")} and ${root}/scenes/{client,promo}/${target}. Pass the scene folder path, or --root <consumer root>.`);
+}
+
+/** Where a scene's project lives: the folder holding the scenes/ ancestor, else the scene's parent folder. */
+function projectPaths(dir, flags) {
+  const parts = resolve(dir).split("/");
+  const at = parts.lastIndexOf("scenes");
+  const root = flags.root ? resolve(flags.root) : at > 0 ? parts.slice(0, at).join("/") : dirname(resolve(dir));
+  return pathsFor(root, flags.out ? resolve(flags.out) : null);
+}
+
+function pathsFor(root, outFlag) {
+  return { root, out: outFlag ?? join(root, "out"), customOut: Boolean(outFlag), registry: join(root, "registry.csv"), costlog: join(root, "cost-log.csv"), brandDirs: [join(root, "brands"), join(KIT, "brands")] };
+}
+
+function loadScene(dir, brandDirs) {
+  const raw = readFileSync(join(dir, "scene.json"), "utf8");
+  if (DASHES.test(raw)) fail(`${dir}/scene.json contains an en or em dash. House rule: use a comma, colon or full stop instead.`);
+  let scene;
+  try { scene = JSON.parse(raw); } catch (e) { fail(`${dir}/scene.json is not valid JSON: ${e.message}`); }
+  for (const k of ["name", "owner", "area", "brand", "beats"]) if (scene[k] === undefined) fail(`${dir}/scene.json is missing "${k}". See README, "Scene file".`);
+  if (!existsSync(join(dir, "kinds.tsx"))) fail(`${dir}/kinds.tsx is missing: it maps each beat "kind" to a component. Copy one from an existing scene.`);
+  const brandFile = brandDirs.map((d) => join(d, `${scene.brand}.json`)).find(existsSync);
+  if (!brandFile) fail(`brand "${scene.brand}" not found. Have: ${brandDirs.flatMap((d) => (existsSync(d) ? readdirSync(d) : [])).filter((f) => f.endsWith(".json")).map((f) => basename(f, ".json")).join(", ")}`);
+  const brand = JSON.parse(readFileSync(brandFile, "utf8"));
+  const timingFile = join(dir, "timing.json");
+  const timing = existsSync(timingFile) ? Object.fromEntries(JSON.parse(readFileSync(timingFile, "utf8")).map((t) => [t.n, t])) : {};
+  scene.beats = scene.beats.map((b) => ({ ...b, ...(timing[b.n] ?? {}) }));
+  let prev = 0;
+  for (const b of scene.beats) {
+    if (!(b.end > b.start)) fail(`beat ${b.n}: needs start < end (got ${b.start}..${b.end}). Narrated beats get times from: bin/video voice ${scene.name}`);
+    if (b.start < prev) fail(`beat ${b.n}: starts at ${b.start}, before the previous beat ends (${prev}).`);
+    prev = b.end;
+  }
+  return { scene, brand, voice: scene.voice ?? brand.voice };
+}
+
+const hasNarration = (scene) => scene.beats.some((b) => b.narration);
+
+function voiceStep(dir, force) {
+  const args = ["run", "--quiet", "--python", "3.12", "--with", "mlx-audio", "--with", "misaki[en]", "python", join(KIT, "voice", "narrate.py"), dir];
+  if (force) args.push("--force");
+  execFileSync("uv", args, { stdio: "inherit" });
+}
+
+const run = (cmd, args) => execFileSync(cmd, args, { stdio: ["ignore", "ignore", "inherit"] });
+
+async function bundleScene(dir, { scene, brand }, fps) {
+  const { bundle } = await import("@remotion/bundler");
+  const { selectComposition } = await import("@remotion/renderer");
+  const publicDir = existsSync(join(dir, "assets")) ? join(dir, "assets") : null;
+  log(`bundling ${scene.name}...`);
+  const serveUrl = await bundle({ entryPoint: join(KIT, "engine", "index.tsx"), publicDir, webpackOverride: sceneWebpackOverride(dir) });
+  const inputProps = { scene, brand, fps };
+  const browserExecutable = existsSync(CHROME) ? CHROME : null;
+  const composition = await selectComposition({ serveUrl, id: "Video", inputProps, browserExecutable });
+  return { serveUrl, inputProps, composition, browserExecutable };
+}
+
+// Last fully visible moment of a beat: after its build, before the fade out.
+const settle = (b, scene) => Math.max(b.start, b.end - (scene.fade ?? 0.5) - 0.05);
+
+function narrationTrack(dir, scene, wav) {
+  const beats = scene.beats.filter((b) => b.narration);
+  const inputs = beats.flatMap((b) => ["-i", join(dir, "audio", `beat${b.n}.wav`)]);
+  const filters = beats.map((b, i) => `[${i}:a]aresample=48000,adelay=${Math.round((b.start + (b.voiceAt ?? 0)) * 1000)}:all=1[a${i}]`);
+  const total = scene.beats.at(-1).end;
+  const graph = `${filters.join(";")};${beats.map((_, i) => `[a${i}]`).join("")}amix=inputs=${beats.length}:normalize=0,apad,atrim=0:${total}[mix]`;
+  run("ffmpeg", ["-y", "-v", "error", ...inputs, "-filter_complex", graph, "-map", "[mix]", "-c:a", "pcm_s16le", wav]);
+}
+
+const stamp = (s) => `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0").replace(".", ",")}`;
+
+function transcripts(scene, dest) {
+  const beats = scene.beats.filter((b) => b.narration);
+  const txt = beats.map((b) => `${b.caption ?? ""}\n${b.narration}\n`).join("\n");
+  const srt = beats.map((b, i) => { const a = b.start + (b.voiceAt ?? 0); return `${i + 1}\n${stamp(a)} --> ${stamp(a + (b.voice ?? b.end - a))}\n${b.narration}\n`; }).join("\n");
+  writeFileSync(join(dest, `${scene.name}.txt`), txt);
+  writeFileSync(join(dest, `${scene.name}.srt`), srt);
+}
+
+/** Run the pre-render checklist, print PASS/FAIL per item, and refuse (exit 2) on any FAIL. */
+function gate(dir, paths) {
+  const items = runChecklist({ dir, brandDirs: paths.brandDirs, outDir: paths.out });
+  log(`pre-render checklist (${dir}):\n${formatChecklist(items)}`);
+  const bad = items.filter((i) => !i.pass);
+  if (bad.length) fail(`pre-render checklist failed on ${bad.length} item${bad.length > 1 ? "s" : ""}: ${bad.map((i) => i.id).join(", ")}. Fix those and run again; nothing was rendered.`);
+  log(`  REVIEW BY EYE before handing to EV (DEV-7364):\n${MANUAL_REVIEW.map((m) => `    - ${m}`).join("\n")}\n    - flicker: constant frame rate, no duplicate frames (checked after render below)`);
+}
+
+/** Post-render facts from the master: size, fps, duration, audio. Printed so the run shows what was produced. */
+function probe(master, scene, fps) {
+  const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height,r_frame_rate,avg_frame_rate,duration", "-of", "json", master]).toString());
+  const v = info.streams.find((s) => s.codec_type === "video");
+  const hasAudio = info.streams.some((s) => s.codec_type === "audio");
+  const cfr = v.r_frame_rate === v.avg_frame_rate;
+  log(`  verify  ${v.width}x${v.height} ${v.r_frame_rate} ${Number(v.duration).toFixed(2)}s audio=${hasAudio ? "yes" : "none"} constant-fps=${cfr ? "PASS" : "FAIL"} (expected ${fps}fps, ${scene.beats.at(-1).end}s)`);
+}
+
+async function render(dir, flags, paths) {
+  const t0 = Date.now();
+  gate(dir, paths);
+  if (hasNarration(loadScene(dir, paths.brandDirs).scene)) voiceStep(dir, false);
+  const loaded = loadScene(dir, paths.brandDirs);
+  const { scene } = loaded;
+  const fps = flags.draft ? 30 : Number(flags.fps ?? 60);
+  const blur = flags.draft ? 1 : Number(flags.blur ?? 2);
+  if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
+  const dest = join(paths.out, scene.area, scene.name);
+  mkdirSync(join(dest, "stills"), { recursive: true });
+  const b = await bundleScene(dir, loaded, fps * blur);
+  const { renderMedia } = await import("@remotion/renderer");
+  const raw = join(dest, ".raw.mp4");
+  let last = -1;
+  await renderMedia({ ...b, codec: "h264", crf: 16, muted: true, outputLocation: raw, concurrency: Math.max(1, Math.floor(cpus().length / 2)), timeoutInMilliseconds: 120000,
+    onProgress: ({ progress }) => { const p = Math.floor(progress * 20); if (p !== last) { last = p; log(`render ${p * 5}%`); } } });
+  const master = join(dest, `${scene.name}${flags.draft ? "-draft" : ""}.mp4`);
+  const audio = hasNarration(scene) ? join(dest, ".voice.wav") : null;
+  if (audio) narrationTrack(dir, scene, audio);
+  const vf = [blur > 1 ? `tmix=frames=${blur},fps=${fps}` : null, "scale=in_range=full:out_range=tv"].filter(Boolean).join(",");
+  run("ffmpeg", ["-y", "-v", "error", "-i", raw, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : ["-an"]),
+    "-vf", vf, "-c:v", "libx264", "-profile:v", "high", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", String(fps), "-movflags", "+faststart", master]);
+  if (!flags.draft) {
+    run("ffmpeg", ["-y", "-v", "error", "-i", master, "-vf", "fps=30", "-c:v", "libx264", "-profile:v", "high", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
+      "-preset", "slow", "-pix_fmt", "yuv420p", ...(audio ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]), "-movflags", "+faststart", join(dest, `${scene.name}-linkedin.mp4`)]);
+  }
+  run("ffmpeg", ["-y", "-v", "error", "-ss", String(scene.poster ?? settle(scene.beats[0], scene)), "-i", master, "-frames:v", "1", join(dest, "poster.png")]);
+  for (const beat of scene.beats) run("ffmpeg", ["-y", "-v", "error", "-ss", settle(beat, scene).toFixed(3), "-i", master, "-frames:v", "1", join(dest, "stills", `beat-${String(beat.n).padStart(2, "0")}.png`)]);
+  if (audio) transcripts(scene, dest);
+  const minutes = (Date.now() - t0) / 60000;
+  probe(master, scene, fps);
+  if (!flags.draft) { registryTouch(paths, scene, master); costLog(paths, scene, flags, minutes, fps, blur); }
+  log(`done in ${minutes.toFixed(1)} min`);
+  console.log(master);
+}
+
+async function stills(dir, flags, paths) {
+  gate(dir, paths);
+  const loaded = loadScene(dir, paths.brandDirs);
+  const { scene } = loaded;
+  const want = flags.beats ? flags.beats.split(",").map(Number) : scene.beats.map((x) => x.n);
+  const beats = want.map((n) => scene.beats.find((x) => x.n === n) ?? fail(`no beat ${n} in ${scene.name}; beats are ${scene.beats.map((x) => x.n).join(",")}`));
+  const dest = join(paths.out, scene.area, scene.name, "carousel");
+  mkdirSync(dest, { recursive: true });
+  const b = await bundleScene(dir, loaded, 30);
+  const { renderStill } = await import("@remotion/renderer");
+  const files = [];
+  for (const [i, beat] of beats.entries()) {
+    const out = join(dest, `slide-${String(i + 1).padStart(2, "0")}.png`);
+    await renderStill({ ...b, frame: Math.round(settle(beat, scene) * 30), output: out });
+    files.push(out);
+    log(`slide ${i + 1}/${beats.length}: beat ${beat.n}`);
+  }
+  const pdf = join(dest, "slides.pdf");
+  execFileSync("uv", ["run", "--quiet", "--with", "pillow", "python", "-c",
+    "import sys;from PIL import Image;im=[Image.open(p).convert('RGB') for p in sys.argv[2:]];im[0].save(sys.argv[1],save_all=True,append_images=im[1:])", pdf, ...files], { stdio: "inherit" });
+  console.log(dest);
+}
+
+async function studio(dir, paths) {
+  const loaded = loadScene(dir, paths.brandDirs);
+  const work = join(KIT, ".video", `studio-${loaded.scene.name}`);
+  mkdirSync(work, { recursive: true });
+  const props = join(work, "props.json");
+  writeFileSync(props, JSON.stringify({ scene: loaded.scene, brand: loaded.brand, fps: 30 }));
+  // Studio reads its webpack override from a config file; generate one per scene under .video/ so the engine source is never touched.
+  const config = join(work, "remotion.config.mjs");
+  writeFileSync(config, `import { Config } from "@remotion/cli/config";\nimport { sceneWebpackOverride } from ${JSON.stringify(join(KIT, "bin", "lib", "webpack-override.mjs"))};\nConfig.overrideWebpackConfig(sceneWebpackOverride(${JSON.stringify(dir)}));\n`);
+  execFileSync(join(KIT, "node_modules", ".bin", "remotion"), ["studio", join(KIT, "engine", "index.tsx"), `--config=${config}`, `--public-dir=${join(dir, "assets")}`, `--props=${props}`], { stdio: "inherit", cwd: KIT });
+}
+
+// registry.csv: name,owner,area,status,output,last_rendered. Humans edit status; render only touches output and date.
+const HEAD = "name,owner,area,status,output,last_rendered";
+const readRegistry = (paths) => (existsSync(paths.registry) ? readFileSync(paths.registry, "utf8").trim().split("\n").slice(1).filter(Boolean).map((l) => l.split(",")) : []);
+const writeRegistry = (paths, rows) => writeFileSync(paths.registry, [HEAD, ...rows.map((r) => r.join(","))].join("\n") + "\n");
+
+function registryTouch(paths, scene, master) {
+  if (paths.customOut) return log("registry: --out is set, registry.csv left alone");
+  const rows = readRegistry(paths);
+  const out = master.replace(paths.root + "/", "");
+  const today = new Date().toISOString().slice(0, 10);
+  const row = rows.find((r) => r[0] === scene.name);
+  if (row) { row[4] = out; row[5] = today; } else rows.push([scene.name, scene.owner, scene.area, "draft", out, today]);
+  writeRegistry(paths, rows);
+}
+
+function costLog(paths, scene, flags, minutes, fps, blur) {
+  if (!existsSync(paths.costlog)) writeFileSync(paths.costlog, "date,video,owner,tokens,render_minutes,video_seconds,fps,blur\n");
+  const tokens = flags.tokens ?? "";
+  if (!tokens) log("cost-log: no --tokens given, tokens column left blank. Pass --tokens N next time.");
+  appendFileSync(paths.costlog, [new Date().toISOString().slice(0, 16), scene.name, scene.owner, tokens, minutes.toFixed(1), scene.beats.at(-1).end, fps, blur].join(",") + "\n");
+}
+
+const ageDays = (date) => Math.floor((Date.now() - Date.parse(date)) / 86400000);
+
+function list(paths) {
+  const rows = readRegistry(paths);
+  if (!rows.length) return console.log("registry is empty: render a scene to add it");
+  for (const [name, owner, area, status, output, when] of rows) {
+    const stale = status !== "archived" && ageDays(when) >= STALE_DAYS ? `  STALE ${ageDays(when)}d: bin/video archive ${name}` : "";
+    console.log(`${name.padEnd(22)} ${owner.padEnd(8)} ${area.padEnd(7)} ${status.padEnd(9)} ${when}  ${output}${stale}`);
+  }
+}
+
+function archive(name, paths, rootFlag) {
+  const rows = readRegistry(paths);
+  const row = rows.find((r) => r[0] === name) ?? fail(`"${name}" is not in ${paths.registry}; bin/video list --root <dir> shows the names`);
+  const src = findScene(name, rootFlag);
+  const dst = join(paths.root, "archive", name);
+  if (existsSync(dst)) fail(`archive/${name} already exists; rename or remove it first`);
+  renameSync(src, dst);
+  row[3] = "archived";
+  writeRegistry(paths, rows);
+  console.log(`archived ${name}: ${dst} (mp4s stay in out/)`);
+}
+
+// Two Chrome renders at once on one laptop crash each other (seen 2026-09-27: both died mid-render). One render at a time, machine-wide.
+// The lock is created with the exclusive flag ("wx"), so two starters cannot both win; a lock whose pid is dead is cleared once.
+const LOCK = join(KIT, ".video", "render.lock");
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+function takeLock() {
+  mkdirSync(dirname(LOCK), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { writeFileSync(LOCK, String(process.pid), { flag: "wx" }); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
+    const holder = Number(readFileSync(LOCK, "utf8")) || 0;
+    if (holder && holder !== process.pid && alive(holder)) fail(`another render is running (pid ${holder}). Wait for it, or stop it with: kill ${holder}`);
+    try { unlinkSync(LOCK); } catch { /* another starter cleared it first; retry */ }
+  }
+  fail(`could not take the render lock ${LOCK}; remove it if no render is running`);
+}
+async function oneAtATime(job) {
+  takeLock();
+  try { return await job(); } finally { try { unlinkSync(LOCK); } catch { /* already gone */ } }
+}
+
+async function main() {
+  const { cmd, target, flags } = parseArgs(process.argv.slice(2));
+  if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") return process.stdout.write(HELP);
+  const rootPaths = () => pathsFor(resolve(flags.root ?? "."), flags.out ? resolve(flags.out) : null);
+  if (cmd === "list") return list(rootPaths());
+  if (cmd === "archive") return archive(target ?? fail("archive which video? bin/video list shows names"), rootPaths(), flags.root);
+  const dir = findScene(target, flags.root);
+  const paths = projectPaths(dir, flags);
+  if (cmd === "render") return oneAtATime(() => render(dir, flags, paths));
+  if (cmd === "stills") return oneAtATime(() => stills(dir, flags, paths));
+  if (cmd === "voice") return voiceStep(dir, Boolean(flags.force));
+  if (cmd === "studio") return studio(dir, paths);
+  fail(`unknown command "${cmd}". Commands: render, stills, voice, studio, list, archive`);
+}
+
+main().catch((e) => {
+  if (e instanceof UserError) { log(`error: ${e.message}`); process.exit(2); }
+  log(`error: ${e.stack ?? e}`);
+  process.exit(1);
+});

@@ -4,3 +4,9 @@ archive/
 .codegraph/
 .wolf/
 .claude/
+
+# video engine (node)
+node_modules/
+out/
+.video/
+*.raw.mp4

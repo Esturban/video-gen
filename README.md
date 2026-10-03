@@ -2,6 +2,34 @@
 
 > Generating videos for different courses quickly with the help of AI.
 
+## Video engine (Remotion, CMO-7526 round 1)
+
+One engine, one `node_modules`, one command. A scene folder lives in the consumer repo (for example `content-thinking/video/scenes/promo/<name>`); this repo holds only the generic kit: `bin/video`, `engine/`, `voice/`, `brands/` (fallback brands). The legacy Python audio scripts below are untouched.
+
+```bash
+npm ci                                              # first time only; Node 20+, ffmpeg, uv (voice only), Chrome
+bin/video render <path-to-scene-folder> [--tokens N] [--out DIR] [--draft]
+```
+
+Spec: `thinking/wiki/domains/dev/video-engine-separation-spec.md`. Exit 0 ok, 2 a fix you can make (message says which), 1 anything else.
+
+What one `render` does, in order:
+1. Pre-render checklist, PASS or FAIL per item, exit 2 on any FAIL and nothing renders: scene.json valid (fields, ordered beats), every beat kind in `kinds.tsx`, brand and font files resolve, no em or en dash in on-screen copy, banned-figure pair absent, output dir writable. The by-eye items from DEV-7364 (logos, titles, event facts) print as a reminder.
+2. Narration step only if a beat has `narration` (local Kokoro through uv). No narration means no audio stream.
+3. Bundle and render with Remotion 4.0.529: 60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat.
+4. Post-render ffprobe line: size, fps, duration, audio, constant frame rate.
+5. Appends a row to `cost-log.csv` and updates `registry.csv`, both next to the scene's `scenes/` folder (`--tokens` fills the tokens column). With `--out`, renders go to `DIR/<area>/<name>/` and `registry.csv` is left alone.
+
+Other commands: `stills`, `voice`, `studio`, `list --root DIR`, `archive NAME --root DIR` (same as the old kit; `bin/video --help`).
+
+Brands are looked up in the consumer's `brands/` first, then this repo's `brands/`. Scenes import the engine as `@video/engine/beat`; a scene still using the old relative `../../../../engine/beat` import keeps working through a webpack redirect, so no scene file had to change. The scene's `kinds.tsx` is wired by a webpack alias per job, so no generated file is written into `engine/`. One render at a time machine-wide (atomic lock at `.video/render.lock`).
+
+Tests: `npm test` (timing maths plus checklist).
+
+Licence: Remotion free tier applies only while clients receive rendered files and never this repo or a scene folder.
+
+## Legacy audio workflow
+
 ### Original Inspiration  
 
 Near the end of July, we were tasked with generating a bunch of videos for the upcoming BI cohort from August to November. So I wanted to make the most of it to put together videos to ensure the content was relevant and engaging similar to the lectures. Over the course of the video generation, I attempted a few different approaches to generate videos quickly as it was an ambitious goal to generate a bunch of content in a short amount of time.  
