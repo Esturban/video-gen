@@ -2,6 +2,7 @@
 import React from "react";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 import { progress } from "./time.js";
+import { crispTime } from "./crispTime.js";
 
 export { clamp01, cursor, drag, follow, progress, spring } from "./time.js";
 
@@ -27,6 +28,7 @@ export type Scene = {
   progress?: boolean; // thin progress bar along the bottom
   poster?: number; // seconds
   data?: Record<string, unknown>; // scene-wide data for this video's kinds
+  render?: { fps: number; blur: number }; // set by bin/video: delivered fps and motion-blur subframes per output frame
   brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
   beats: Beat[];
 };
@@ -53,6 +55,18 @@ export const useSeconds = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   return frame / fps / (useBeat().pace ?? 1);
+};
+
+/**
+ * Seconds for anything that must not ghost (digits, text, hairlines): every motion-blur subframe of one output frame reads the same time, so the averaged frame is sharp.
+ * Shapes that should keep their blur use useSeconds. With no blur (draft, studio) it equals useSeconds.
+ */
+export const useCrispSeconds = () => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const render = useScene().render;
+  const t = frame / fps;
+  return (render ? crispTime(t, render.fps, render.blur) : t) / (useBeat().pace ?? 1);
 };
 
 /** Eased 0..1 progress between two times in seconds (pace applied). */

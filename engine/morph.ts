@@ -4,4 +4,7 @@
 export { POLY_LENGTH, SIDES, bendPoint, bentRectPoly, circlePoly, maxPointDistance, morphPoly, pointPoly, polyArea, polyPath, quadPoly, roundedRectPoly, roundedRectPoint, segmentQuad } from "./morphMath.js";
 export { mixRgb, parseColor, rgbCss } from "./colorMath.js";
 export { cameraAt, viewBoxFor } from "./cameraMath.js";
-export { EXTRA_WINDOWS, STAGE_WINDOWS, buildStory, stageTimes } from "./chartStoryMath.js";
+export { BENTO_WINDOW, EXTRA_WINDOWS, STAGE_WINDOWS, buildStory, stageTimes } from "./chartStoryMath.js";
+export { areaGeometry, cumulative, shareSegments, stackedSegments, tileReveal } from "./bentoMath.js";
+export { driftOffset, layerShift, motes } from "./parallaxMath.js";
+export { crispTime } from "./crispTime.js";

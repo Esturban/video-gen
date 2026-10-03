@@ -124,13 +124,13 @@ function voiceStep(dir, force) {
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: ["ignore", "ignore", "inherit"] });
 
-async function bundleScene(dir, { scene, brand }, fps) {
+async function bundleScene(dir, { scene, brand }, fps, render = null) {
   const { bundle } = await import("@remotion/bundler");
   const { selectComposition } = await import("@remotion/renderer");
   const publicDir = existsSync(join(dir, "assets")) ? join(dir, "assets") : null;
   log(`bundling ${scene.name}...`);
   const serveUrl = await bundle({ entryPoint: join(KIT, "engine", "index.tsx"), publicDir, webpackOverride: sceneWebpackOverride(dir) });
-  const inputProps = { scene, brand, fps };
+  const inputProps = { scene: render ? { ...scene, render } : scene, brand, fps }; // render = { fps, blur } lets a scene snap its text clock to the output frame (engine/crispTime.js)
   const browserExecutable = existsSync(CHROME) ? CHROME : null;
   const composition = await selectComposition({ serveUrl, id: "Video", inputProps, browserExecutable });
   return { serveUrl, inputProps, composition, browserExecutable };
@@ -189,7 +189,7 @@ async function render(dir, flags, paths, tokens) {
   if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
   const dest = join(paths.out, scene.area, scene.name);
   mkdirSync(join(dest, "stills"), { recursive: true });
-  const b = await bundleScene(dir, loaded, fps * blur);
+  const b = await bundleScene(dir, loaded, fps * blur, { fps, blur });
   const { renderMedia } = await import("@remotion/renderer");
   const raw = join(dest, ".raw.mp4");
   let last = -1;
