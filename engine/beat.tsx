@@ -27,6 +27,7 @@ export type Scene = {
   progress?: boolean; // thin progress bar along the bottom
   poster?: number; // seconds
   data?: Record<string, unknown>; // scene-wide data for this video's kinds
+  brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
   beats: Beat[];
 };
 

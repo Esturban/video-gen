@@ -15,6 +15,8 @@ export const EASINGS = {
   easeOutCubic: (x) => 1 - (1 - x) ** 3,
   easeOutQuint: (x) => 1 - (1 - x) ** 5,
   easeInOutCubic: (x) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2),
+  /** Sine ease in and out: peak speed pi/2 (1.57x average), the gentlest in-out here, so the least motion-blur smear on a long sweep. */
+  easeInOutSine: (x) => 0.5 - Math.cos(Math.PI * x) / 2,
   /** Quintic smootherstep: zero velocity and zero acceleration at both ends. The default for anything that must come to rest. */
   smooth: (x) => x * x * x * (x * (x * 6 - 15) + 10),
 };

@@ -2,6 +2,7 @@
 // Source of the rules: the DEV-7364 pre-render checklist plus house rules (no em or en dash, banned figure pair).
 import { accessSync, constants, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { resolveBrandSlot } from "../../engine/brandSlotMath.js";
 
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 const BANNED_A = /(?<!\d)(14|4) hours/i; // "14 hours" or "4 hours" ...
@@ -81,16 +82,31 @@ function checkWritable(outDir) {
   try { accessSync(at, constants.W_OK); return []; } catch (e) { return [`${outDir} is not writable (${at}): ${e.code ?? e.message}`]; }
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Problems with a scene's brandSlot field: a bad value, a logo that is not in assets/, or a .png that is not a PNG. Empty array means fine. */
+export function validateBrandSlotAssets(dir, spec) {
+  let slot;
+  try { slot = resolveBrandSlot(spec); } catch (e) { return [e.message]; }
+  if (!slot.logo) return [];
+  const file = join(dir, "assets", slot.logo);
+  if (!existsSync(file)) return [`brandSlot.logo "${slot.logo}" is not in ${join(dir, "assets")}`];
+  if (/\.png$/i.test(slot.logo) && !readFileSync(file).subarray(0, 8).equals(PNG_SIGNATURE)) return [`brandSlot.logo "${slot.logo}" is not a valid PNG`];
+  return [];
+}
+
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */
 export function runChecklist({ dir, brandDirs, outDir }) {
   const { scene, problems: sceneProblems } = checkScene(dir);
   const copy = existsSync(dir) ? checkCopy(dir) : { dashes: [], banned: [] };
+  const slot = scene?.brandSlot === undefined ? [] : [result("brandSlot", "brand slot valid", validateBrandSlotAssets(dir, scene.brandSlot))]; // only when the scene asks for one
   return [
     result("scene", "scene.json valid", sceneProblems),
     result("kinds", "every beat kind present in kinds.tsx", scene ? checkKinds(dir, scene) : ["no scene to check"]),
     result("fonts", "brand and fonts resolve", scene ? checkFonts(dir, scene, brandDirs) : ["no scene to check"]),
     result("dashes", "no em or en dash in on-screen copy", copy.dashes),
     result("banned", "banned figure pair absent", copy.banned),
+    ...slot,
     result("output", "output dir writable", checkWritable(outDir)),
   ];
 }

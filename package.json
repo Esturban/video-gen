@@ -6,7 +6,7 @@
   "description": "Video engine: one engine, a scene file per video, scenes live in the consumer repo. Run bin/video.",
   "bin": { "video": "bin/video" },
   "scripts": {
-    "test": "node --test engine/time.test.mjs engine/countValue.test.mjs engine/motion.test.mjs engine/pointer.test.mjs engine/typing.test.mjs bin/lib/checkframes.test.mjs bin/lib/checklist.test.mjs bin/lib/ledger.test.mjs bin/lib/cli.test.mjs"
+    "test": "node --test engine/time.test.mjs engine/countValue.test.mjs engine/motion.test.mjs engine/pointer.test.mjs engine/typing.test.mjs engine/morphMath.test.mjs engine/chartStoryMath.test.mjs engine/brandSlot.test.mjs bin/lib/checkframes.test.mjs bin/lib/checklist.test.mjs bin/lib/ledger.test.mjs bin/lib/cli.test.mjs"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.529",
