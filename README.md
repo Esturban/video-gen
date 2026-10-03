@@ -27,7 +27,13 @@ Brands are looked up in the consumer's `brands/` first, then this repo's `brands
 
 Counting-up numbers: `import { Counter, CountedText } from "@video/engine/counter"`. `CountedText` takes the real copy plus the whole numbers in it to count; the pure value function is `engine/countValue.js` (closed form, lands exactly on the target and holds).
 
-Tests: `npm test` (timing maths, count maths, checklist, ledger, `check` and tokens CLI cases).
+UI-demo parts (round 3), all pure functions of time, each with node:test cases:
+- `@video/engine/motion`: named easing curves, `springStep`, `staggerProgress`, and `tween`, the no-teleport helper (a value moves between states only through an eased interval; zero-length changes throw). Maths in `motionMath.js`.
+- `@video/engine/pointer`: `<Pointer waypoints=[{t,x,y,act?}] />`. The pointer arrives at each waypoint at rest, a `press` goes down 0.12s after arrival, ripple and squash, held before the start and after the end. A path that would force a teleport throws. Maths in `pointerPath.js`.
+- `@video/engine/typing`: `<Typing text start cps pauses focusAt />`, chars monotonic, lands exactly on the full string, caret solid while typing then blinking. Maths in `typingState.js`.
+- `bin/video frames <mp4> [--sheet DIR] [--max-hold S]`: frame gate (blank frames, dead stretches, teleports) plus a contact sheet PNG. Runs automatically after `render`; a FAIL exits 2 and keeps the file. Thresholds are named constants in `bin/lib/checkframes.mjs`. Known limit: it catches jumps, not smooth ghosting or double images from motion blur.
+
+Tests: `npm test` (timing maths, count maths, motion, pointer, typing, frame gate, checklist, ledger, `check` and tokens CLI cases).
 
 Licence: Remotion free tier applies only while clients receive rendered files and never this repo or a scene folder.
 

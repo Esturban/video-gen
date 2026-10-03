@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { cpus } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mjs";
+import { checkFrames, DEAD_MAX_HOLD_S, formatFrameReport } from "./lib/checkframes.mjs";
 import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 
@@ -17,8 +18,9 @@ const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carr
 const HELP = `video: the video engine (video-gen)
 
 Usage:
-  video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat
+  video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat, then the frame gate (a FAIL exits 2, the file is kept)
   video check  <scene>   the pre-render checklist alone: PASS or FAIL per item, exit 0 or 2, writes nothing
+  video frames <mp4>     frame gate on a rendered file: blank frames, dead stretches, teleports, plus a contact sheet. Exit 0 or 2
   video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
   video voice  <scene>   narration only: synthesise changed beats, retime the scene from the audio
   video studio <scene>   open the scene in Remotion Studio to preview while editing
@@ -36,6 +38,8 @@ Flags:
   --blur N       motion blur subframes per output frame (default 2, 1 = off)
   --beats 0,3,5  stills: which beats become slides (default all)
   --tokens N     REQUIRED on a non-draft render: model tokens spent making this video, for cost-log.csv (0 for a pure render)
+  --sheet DIR    frames: where the contact sheet PNG goes (default: next to the mp4); render writes it next to the master
+  --max-hold S   frames and render: longest hold in seconds where nothing changes before the gate fails (default ${DEAD_MAX_HOLD_S})
   --force        voice: re-synthesise every beat
   --out DIR      render into DIR/<area>/<name>/ instead of <root>/out; a scratch render, so registry.csv and cost-log.csv are left alone
   --root DIR     consumer root for list, archive and name lookups (default: current directory)
@@ -58,8 +62,8 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) fail(`unexpected argument "${a}". Flags start with --; see: bin/video --help`);
     const key = a.slice(2);
     if (["draft", "force"].includes(key)) flags[key] = true;
-    else if (["fps", "blur", "beats", "tokens", "out", "root"].includes(key)) flags[key] = rest[++i] ?? fail(`--${key} needs a value`);
-    else fail(`unknown flag --${key}. Known: --draft --fps --blur --beats --tokens --force --out --root`);
+    else if (["fps", "blur", "beats", "tokens", "out", "root", "sheet", "max-hold"].includes(key)) flags[key] = rest[++i] ?? fail(`--${key} needs a value`);
+    else fail(`unknown flag --${key}. Known: --draft --fps --blur --beats --tokens --force --out --root --sheet --max-hold`);
   }
   return { cmd, target, flags };
 }
@@ -213,6 +217,25 @@ async function render(dir, flags, paths, tokens) {
   }
   log(`done in ${minutes.toFixed(1)} min`);
   console.log(master);
+  const frames = frameGate(master, dest, flags);
+  if (!frames.pass) fail(`frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}. The render is kept at ${master}; fix the scene and render again.`);
+}
+
+/** Frame gate on a finished mp4: prints the report (stderr during render, stdout standalone) and returns it. The caller decides what a FAIL does. */
+function frameGate(file, sheetDir, flags, standalone = false) {
+  const maxHold = flags["max-hold"] === undefined ? undefined : Number(flags["max-hold"]);
+  if (maxHold !== undefined && !(maxHold > 0)) fail("--max-hold must be a positive number of seconds");
+  const result = checkFrames(file, { sheetDir, maxHold });
+  (standalone ? console.log : log)(formatFrameReport(result));
+  return result;
+}
+
+function framesCommand(target, flags) {
+  if (!target) fail("which file? e.g. bin/video frames path/to/render.mp4 [--sheet DIR]");
+  const file = resolve(target);
+  if (!existsSync(file)) fail(`${file} does not exist`);
+  const result = frameGate(file, flags.sheet ? resolve(flags.sheet) : dirname(file), flags, true);
+  if (!result.pass) fail(`frame check failed on ${result.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}`);
 }
 
 async function stills(dir, flags, paths) {
@@ -298,6 +321,7 @@ async function main() {
   const rootPaths = () => pathsFor(resolve(flags.root ?? "."), flags.out ? resolve(flags.out) : null);
   if (cmd === "list") return list(rootPaths());
   if (cmd === "archive") return archive(target ?? fail("archive which video? bin/video list shows names"), rootPaths(), flags.root);
+  if (cmd === "frames") return framesCommand(target, flags);
   const dir = findScene(target, flags.root);
   const paths = projectPaths(dir, flags);
   if (cmd === "check") return gate(dir, paths, true);
@@ -309,7 +333,7 @@ async function main() {
   if (cmd === "stills") return oneAtATime(() => stills(dir, flags, paths));
   if (cmd === "voice") return voiceStep(dir, Boolean(flags.force));
   if (cmd === "studio") return studio(dir, paths);
-  fail(`unknown command "${cmd}". Commands: render, check, stills, voice, studio, list, archive`);
+  fail(`unknown command "${cmd}". Commands: render, check, frames, stills, voice, studio, list, archive`);
 }
 
 main().catch((e) => {
