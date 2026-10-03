@@ -1,7 +1,7 @@
 // Pre-render gate for bin/video render. Pure checks over a scene folder; the CLI prints the result and exits 2 on any FAIL.
 // Source of the rules: the DEV-7364 pre-render checklist plus house rules (no em or en dash, banned figure pair).
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { accessSync, constants, existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 const BANNED_A = /(?<!\d)(14|4) hours/i; // "14 hours" or "4 hours" ...
@@ -74,8 +74,11 @@ function checkCopy(dir) {
   };
 }
 
+/** Read-only: the nearest existing ancestor of outDir (outDir itself when present) must be writable. Creates nothing, so `bin/video check` writes nothing. */
 function checkWritable(outDir) {
-  try { mkdirSync(outDir, { recursive: true }); accessSync(outDir, constants.W_OK); return []; } catch (e) { return [`${outDir} is not writable: ${e.code ?? e.message}`]; }
+  let at = outDir;
+  while (!existsSync(at) && dirname(at) !== at) at = dirname(at);
+  try { accessSync(at, constants.W_OK); return []; } catch (e) { return [`${outDir} is not writable (${at}): ${e.code ?? e.message}`]; }
 }
 
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */

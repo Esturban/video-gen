@@ -8,7 +8,8 @@ One engine, one `node_modules`, one command. A scene folder lives in the consume
 
 ```bash
 npm ci                                              # first time only; Node 20+, ffmpeg, uv (voice only), Chrome
-bin/video render <path-to-scene-folder> [--tokens N] [--out DIR] [--draft]
+bin/video render <path-to-scene-folder> --tokens N [--out DIR] [--draft]   # --tokens is required unless --draft; 0 is fine for a pure render
+bin/video check <path-to-scene-folder>                                      # the checklist alone: PASS/FAIL per item, exit 0 or 2, writes nothing
 ```
 
 Spec: `thinking/wiki/domains/dev/video-engine-separation-spec.md`. Exit 0 ok, 2 a fix you can make (message says which), 1 anything else.
@@ -18,13 +19,15 @@ What one `render` does, in order:
 2. Narration step only if a beat has `narration` (local Kokoro through uv). No narration means no audio stream.
 3. Bundle and render with Remotion 4.0.529: 60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat.
 4. Post-render ffprobe line: size, fps, duration, audio, constant frame rate.
-5. Appends a row to `cost-log.csv` and updates `registry.csv`, both next to the scene's `scenes/` folder (`--tokens` fills the tokens column). With `--out`, renders go to `DIR/<area>/<name>/` and `registry.csv` is left alone.
+5. Appends a row to `cost-log.csv` and updates `registry.csv`, both next to the scene's `scenes/` folder. `--tokens N` is required on a non-draft render (exit 2 without it; `--draft` is exempt and logs nothing). The cost-log date column is an ISO UTC stamp with a Z suffix, for example `2026-10-03T15:36Z`; the header and 8 columns are unchanged and older rows are left as they are. With `--out`, renders go to `DIR/<area>/<name>/` and write nothing to `cost-log.csv` or `registry.csv` (the ledgers are for real deliverable renders only).
 
 Other commands: `stills`, `voice`, `studio`, `list --root DIR`, `archive NAME --root DIR` (same as the old kit; `bin/video --help`).
 
 Brands are looked up in the consumer's `brands/` first, then this repo's `brands/`. Scenes import the engine as `@video/engine/beat`; a scene still using the old relative `../../../../engine/beat` import keeps working through a webpack redirect, so no scene file had to change. The scene's `kinds.tsx` is wired by a webpack alias per job, so no generated file is written into `engine/`. One render at a time machine-wide (atomic lock at `.video/render.lock`).
 
-Tests: `npm test` (timing maths plus checklist).
+Counting-up numbers: `import { Counter, CountedText } from "@video/engine/counter"`. `CountedText` takes the real copy plus the whole numbers in it to count; the pure value function is `engine/countValue.js` (closed form, lands exactly on the target and holds).
+
+Tests: `npm test` (timing maths, count maths, checklist, ledger, `check` and tokens CLI cases).
 
 Licence: Remotion free tier applies only while clients receive rendered files and never this repo or a scene folder.
 

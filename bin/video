@@ -3,10 +3,11 @@
 // The one command for the video engine (video-gen). A scene folder in, an mp4 out. Run with no args for help.
 // Scenes, brands, out/, registry.csv and cost-log.csv live in the consumer repo (the folder that holds scenes/); this engine holds none of them.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mjs";
+import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -17,6 +18,7 @@ const HELP = `video: the video engine (video-gen)
 
 Usage:
   video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat
+  video check  <scene>   the pre-render checklist alone: PASS or FAIL per item, exit 0 or 2, writes nothing
   video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
   video voice  <scene>   narration only: synthesise changed beats, retime the scene from the audio
   video studio <scene>   open the scene in Remotion Studio to preview while editing
@@ -33,9 +35,9 @@ Flags:
   --fps N        master frame rate (default 60)
   --blur N       motion blur subframes per output frame (default 2, 1 = off)
   --beats 0,3,5  stills: which beats become slides (default all)
-  --tokens N     model tokens spent making this video, for cost-log.csv
+  --tokens N     REQUIRED on a non-draft render: model tokens spent making this video, for cost-log.csv (0 for a pure render)
   --force        voice: re-synthesise every beat
-  --out DIR      render into DIR/<area>/<name>/ instead of <root>/out (registry.csv is then left alone)
+  --out DIR      render into DIR/<area>/<name>/ instead of <root>/out; a scratch render, so registry.csv and cost-log.csv are left alone
   --root DIR     consumer root for list, archive and name lookups (default: current directory)
 
 Examples:
@@ -152,12 +154,14 @@ function transcripts(scene, dest) {
   writeFileSync(join(dest, `${scene.name}.srt`), srt);
 }
 
-/** Run the pre-render checklist, print PASS/FAIL per item, and refuse (exit 2) on any FAIL. */
-function gate(dir, paths) {
+/** Run the pre-render checklist, print PASS/FAIL per item, and refuse (exit 2) on any FAIL. `standalone` is `bin/video check`: stdout, nothing implied about rendering. */
+function gate(dir, paths, standalone = false) {
   const items = runChecklist({ dir, brandDirs: paths.brandDirs, outDir: paths.out });
-  log(`pre-render checklist (${dir}):\n${formatChecklist(items)}`);
+  const say = standalone ? console.log : log;
+  say(`pre-render checklist (${dir}):\n${formatChecklist(items)}`);
   const bad = items.filter((i) => !i.pass);
-  if (bad.length) fail(`pre-render checklist failed on ${bad.length} item${bad.length > 1 ? "s" : ""}: ${bad.map((i) => i.id).join(", ")}. Fix those and run again; nothing was rendered.`);
+  if (bad.length) fail(`pre-render checklist failed on ${bad.length} item${bad.length > 1 ? "s" : ""}: ${bad.map((i) => i.id).join(", ")}. Fix those and run again${standalone ? "." : "; nothing was rendered."}`);
+  if (standalone) return say(`checklist PASS: ${items.length}/${items.length} items. Still review by eye before handing to EV:\n${MANUAL_REVIEW.map((m) => `    - ${m}`).join("\n")}`);
   log(`  REVIEW BY EYE before handing to EV (DEV-7364):\n${MANUAL_REVIEW.map((m) => `    - ${m}`).join("\n")}\n    - flicker: constant frame rate, no duplicate frames (checked after render below)`);
 }
 
@@ -170,7 +174,7 @@ function probe(master, scene, fps) {
   log(`  verify  ${v.width}x${v.height} ${v.r_frame_rate} ${Number(v.duration).toFixed(2)}s audio=${hasAudio ? "yes" : "none"} constant-fps=${cfr ? "PASS" : "FAIL"} (expected ${fps}fps, ${scene.beats.at(-1).end}s)`);
 }
 
-async function render(dir, flags, paths) {
+async function render(dir, flags, paths, tokens) {
   const t0 = Date.now();
   gate(dir, paths);
   if (hasNarration(loadScene(dir, paths.brandDirs).scene)) voiceStep(dir, false);
@@ -202,7 +206,11 @@ async function render(dir, flags, paths) {
   if (audio) transcripts(scene, dest);
   const minutes = (Date.now() - t0) / 60000;
   probe(master, scene, fps);
-  if (!flags.draft) { registryTouch(paths, scene, master); costLog(paths, scene, flags, minutes, fps, blur); }
+  if (!flags.draft) {
+    const reg = registryTouch(paths, scene, master);
+    const cost = costLog(paths, scene, { tokens, minutes, fps, blur });
+    log(reg === "skipped" || cost === "skipped" ? "ledger: --out is set, registry.csv and cost-log.csv left alone (scratch render)" : "ledger: registry.csv and cost-log.csv updated");
+  }
   log(`done in ${minutes.toFixed(1)} min`);
   console.log(master);
 }
@@ -240,28 +248,6 @@ async function studio(dir, paths) {
   const config = join(work, "remotion.config.mjs");
   writeFileSync(config, `import { Config } from "@remotion/cli/config";\nimport { sceneWebpackOverride } from ${JSON.stringify(join(KIT, "bin", "lib", "webpack-override.mjs"))};\nConfig.overrideWebpackConfig(sceneWebpackOverride(${JSON.stringify(dir)}));\n`);
   execFileSync(join(KIT, "node_modules", ".bin", "remotion"), ["studio", join(KIT, "engine", "index.tsx"), `--config=${config}`, `--public-dir=${join(dir, "assets")}`, `--props=${props}`], { stdio: "inherit", cwd: KIT });
-}
-
-// registry.csv: name,owner,area,status,output,last_rendered. Humans edit status; render only touches output and date.
-const HEAD = "name,owner,area,status,output,last_rendered";
-const readRegistry = (paths) => (existsSync(paths.registry) ? readFileSync(paths.registry, "utf8").trim().split("\n").slice(1).filter(Boolean).map((l) => l.split(",")) : []);
-const writeRegistry = (paths, rows) => writeFileSync(paths.registry, [HEAD, ...rows.map((r) => r.join(","))].join("\n") + "\n");
-
-function registryTouch(paths, scene, master) {
-  if (paths.customOut) return log("registry: --out is set, registry.csv left alone");
-  const rows = readRegistry(paths);
-  const out = master.replace(paths.root + "/", "");
-  const today = new Date().toISOString().slice(0, 10);
-  const row = rows.find((r) => r[0] === scene.name);
-  if (row) { row[4] = out; row[5] = today; } else rows.push([scene.name, scene.owner, scene.area, "draft", out, today]);
-  writeRegistry(paths, rows);
-}
-
-function costLog(paths, scene, flags, minutes, fps, blur) {
-  if (!existsSync(paths.costlog)) writeFileSync(paths.costlog, "date,video,owner,tokens,render_minutes,video_seconds,fps,blur\n");
-  const tokens = flags.tokens ?? "";
-  if (!tokens) log("cost-log: no --tokens given, tokens column left blank. Pass --tokens N next time.");
-  appendFileSync(paths.costlog, [new Date().toISOString().slice(0, 16), scene.name, scene.owner, tokens, minutes.toFixed(1), scene.beats.at(-1).end, fps, blur].join(",") + "\n");
 }
 
 const ageDays = (date) => Math.floor((Date.now() - Date.parse(date)) / 86400000);
@@ -314,11 +300,16 @@ async function main() {
   if (cmd === "archive") return archive(target ?? fail("archive which video? bin/video list shows names"), rootPaths(), flags.root);
   const dir = findScene(target, flags.root);
   const paths = projectPaths(dir, flags);
-  if (cmd === "render") return oneAtATime(() => render(dir, flags, paths));
+  if (cmd === "check") return gate(dir, paths, true);
+  if (cmd === "render") {
+    let tokens;
+    try { tokens = requireTokens(flags); } catch (e) { fail(e.message); }
+    return oneAtATime(() => render(dir, flags, paths, tokens));
+  }
   if (cmd === "stills") return oneAtATime(() => stills(dir, flags, paths));
   if (cmd === "voice") return voiceStep(dir, Boolean(flags.force));
   if (cmd === "studio") return studio(dir, paths);
-  fail(`unknown command "${cmd}". Commands: render, stills, voice, studio, list, archive`);
+  fail(`unknown command "${cmd}". Commands: render, check, stills, voice, studio, list, archive`);
 }
 
 main().catch((e) => {
