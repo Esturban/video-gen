@@ -12,6 +12,7 @@ import { checkCaptionSync, formatSyncReport } from "./lib/captionsync.mjs";
 import { wordsForScene } from "./lib/words.mjs";
 import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
+import { resolveVariant, variantFileName, variantSizes } from "./lib/variants.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const STALE_DAYS = 60;
@@ -21,6 +22,7 @@ const HELP = `video: the video engine (video-gen)
 
 Usage:
   video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat, then the frame gate (a FAIL exits 2, the file is kept)
+                         a scene with "variants" (e.g. 9x16) also gets <name>-<variant>.mp4, its poster and its own frame gate and contact sheet
   video check  <scene>   the pre-render checklist alone: PASS or FAIL per item, exit 0 or 2, writes nothing
   video frames <mp4>     frame gate on a rendered file: blank frames, dead stretches, teleports, plus a contact sheet. Exit 0 or 2
   video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
@@ -127,16 +129,24 @@ function voiceStep(dir, force) {
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: ["ignore", "ignore", "inherit"] });
 
-async function bundleScene(dir, { scene, brand }, fps, render = null) {
+async function bundleOnce(dir, name) {
   const { bundle } = await import("@remotion/bundler");
-  const { selectComposition } = await import("@remotion/renderer");
   const publicDir = existsSync(join(dir, "assets")) ? join(dir, "assets") : null;
-  log(`bundling ${scene.name}...`);
-  const serveUrl = await bundle({ entryPoint: join(KIT, "engine", "index.tsx"), publicDir, webpackOverride: sceneWebpackOverride(dir) });
+  log(`bundling ${name}...`);
+  return bundle({ entryPoint: join(KIT, "engine", "index.tsx"), publicDir, webpackOverride: sceneWebpackOverride(dir) });
+}
+
+/** One composition from a bundle. The scene's size sets the composition size (engine/index.tsx), so a variant is its own composition from the same bundle. */
+async function selectFor(serveUrl, { scene, brand }, fps, render = null) {
+  const { selectComposition } = await import("@remotion/renderer");
   const inputProps = { scene: render ? { ...scene, render } : scene, brand, fps }; // render = { fps, blur } lets a scene snap its text clock to the output frame (engine/crispTime.js)
   const browserExecutable = existsSync(CHROME) ? CHROME : null;
   const composition = await selectComposition({ serveUrl, id: "Video", inputProps, browserExecutable });
   return { serveUrl, inputProps, composition, browserExecutable };
+}
+
+async function bundleScene(dir, loaded, fps, render = null) {
+  return selectFor(await bundleOnce(dir, loaded.scene.name), loaded, fps, render);
 }
 
 // Last fully visible moment of a beat: after its build, before the fade out.
@@ -173,12 +183,12 @@ function gate(dir, paths, standalone = false) {
 }
 
 /** Post-render facts from the master: size, fps, duration, audio. Printed so the run shows what was produced. */
-function probe(master, scene, fps) {
+function probe(master, scene, fps, label = "master") {
   const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height,r_frame_rate,avg_frame_rate,duration", "-of", "json", master]).toString());
   const v = info.streams.find((s) => s.codec_type === "video");
   const hasAudio = info.streams.some((s) => s.codec_type === "audio");
   const cfr = v.r_frame_rate === v.avg_frame_rate;
-  log(`  verify  ${v.width}x${v.height} ${v.r_frame_rate} ${Number(v.duration).toFixed(2)}s audio=${hasAudio ? "yes" : "none"} constant-fps=${cfr ? "PASS" : "FAIL"} (expected ${fps}fps, ${scene.beats.at(-1).end}s)`);
+  log(`  verify  ${label.padEnd(6)} ${v.width}x${v.height} ${v.r_frame_rate} ${Number(v.duration).toFixed(2)}s audio=${hasAudio ? "yes" : "none"} constant-fps=${cfr ? "PASS" : "FAIL"} (expected ${fps}fps, ${scene.beats.at(-1).end}s)`);
 }
 
 async function render(dir, flags, paths, tokens) {
@@ -193,38 +203,59 @@ async function render(dir, flags, paths, tokens) {
   mkdirSync(join(dest, "stills"), { recursive: true });
   const loaded = timed.scene.captions ? { ...timed, scene: { ...timed.scene, words: captionWords(dir, timed.scene, dest) } } : timed;
   const { scene } = loaded;
-  const b = await bundleScene(dir, loaded, fps * blur, { fps, blur });
-  const { renderMedia } = await import("@remotion/renderer");
-  const raw = join(dest, ".raw.mp4");
-  let last = -1;
-  await renderMedia({ ...b, codec: "h264", crf: 16, muted: true, outputLocation: raw, concurrency: Math.max(1, Math.floor(cpus().length / 2)), timeoutInMilliseconds: 120000,
-    onProgress: ({ progress }) => { const p = Math.floor(progress * 20); if (p !== last) { last = p; log(`render ${p * 5}%`); } } });
-  const master = join(dest, `${scene.name}${flags.draft ? "-draft" : ""}.mp4`);
+  const serveUrl = await bundleOnce(dir, scene.name);
   const audio = hasNarration(scene) ? join(dest, ".voice.wav") : null;
   if (audio) narrationTrack(dir, scene, audio);
-  const vf = [blur > 1 ? `tmix=frames=${blur},fps=${fps}` : null, "scale=in_range=full:out_range=tv"].filter(Boolean).join(",");
-  run("ffmpeg", ["-y", "-v", "error", "-i", raw, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : ["-an"]),
-    "-vf", vf, "-c:v", "libx264", "-profile:v", "high", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", String(fps), "-movflags", "+faststart", master]);
-  if (!flags.draft) {
-    run("ffmpeg", ["-y", "-v", "error", "-i", master, "-vf", "fps=30", "-c:v", "libx264", "-profile:v", "high", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
-      "-preset", "slow", "-pix_fmt", "yuv420p", ...(audio ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]), "-movflags", "+faststart", join(dest, `${scene.name}-linkedin.mp4`)]);
-  }
-  run("ffmpeg", ["-y", "-v", "error", "-ss", String(scene.poster ?? settle(scene.beats[0], scene)), "-i", master, "-frames:v", "1", join(dest, "poster.png")]);
+  const draft = flags.draft ? "-draft" : "";
+  // The master first, then each variant as its own composition from the same bundle, beats and narration (CMO-7577).
+  const cuts = [{ label: "master", loaded, stem: `${scene.name}${draft}`, poster: "poster.png" },
+    ...variantSizes(scene).map(({ name }) => ({ label: name, loaded: { ...loaded, scene: resolveVariant(scene, name) }, stem: `${variantFileName(scene.name, name)}${draft}`, poster: `poster-${name}.png` }))];
+  const files = [];
+  for (const cut of cuts) files.push(await renderCut(cut, { serveUrl, dest, fps, blur, audio, draft: Boolean(flags.draft) }));
+  const master = files[0];
   for (const beat of scene.beats) run("ffmpeg", ["-y", "-v", "error", "-ss", settle(beat, scene).toFixed(3), "-i", master, "-frames:v", "1", join(dest, "stills", `beat-${String(beat.n).padStart(2, "0")}.png`)]);
   if (audio) transcripts(scene, dest);
   const minutes = (Date.now() - t0) / 60000;
-  probe(master, scene, fps);
+  cuts.forEach((cut, i) => probe(files[i], cut.loaded.scene, fps, cut.label));
   if (!flags.draft) {
     const reg = registryTouch(paths, scene, master);
     const cost = costLog(paths, scene, { tokens, minutes, fps, blur });
     log(reg === "skipped" || cost === "skipped" ? "ledger: --out is set, registry.csv and cost-log.csv left alone (scratch render)" : "ledger: registry.csv and cost-log.csv updated");
   }
   log(`done in ${minutes.toFixed(1)} min`);
-  console.log(master);
-  const frames = frameGate(master, dest, flags);
-  const sync = scene.captions ? captionSync(master, loaded, fps) : { pass: true };
-  if (!frames.pass) fail(`frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}. The render is kept at ${master}; fix the scene and render again.`);
-  if (!sync.pass) fail(`caption sync FAILED: a checked word's highlight is more than 2 frames off its time. The render is kept at ${master}.`);
+  for (const f of files) console.log(f);
+  // Frame gate and caption sync on every cut, each with its own contact sheet next to the master; all are reported before any FAIL exits.
+  const failures = cuts.flatMap((cut, i) => {
+    const frames = frameGate(files[i], dest, flags);
+    const sync = cut.loaded.scene.captions ? captionSync(files[i], cut.loaded, fps) : { pass: true };
+    return [
+      ...(frames.pass ? [] : [`${cut.label}: frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}`]),
+      ...(sync.pass ? [] : [`${cut.label}: caption sync FAILED, a checked word's highlight is more than 2 frames off its time`]),
+    ];
+  });
+  if (failures.length) fail(`${failures.join("; ")}. The renders are kept in ${dest}; fix the scene and render again.`);
+}
+
+/** Render one composition (the master or a variant) to <dest>/<stem>.mp4 with the shared narration, plus its poster; the master also gets the 30fps LinkedIn cut. Returns the mp4 path. */
+async function renderCut({ label, loaded, stem, poster }, { serveUrl, dest, fps, blur, audio, draft }) {
+  const b = await selectFor(serveUrl, loaded, fps * blur, { fps, blur });
+  const { renderMedia } = await import("@remotion/renderer");
+  const { scene } = loaded;
+  const raw = join(dest, label === "master" ? ".raw.mp4" : `.raw-${label}.mp4`);
+  let last = -1;
+  log(`render ${label} ${b.composition.width}x${b.composition.height}`);
+  await renderMedia({ ...b, codec: "h264", crf: 16, muted: true, outputLocation: raw, concurrency: Math.max(1, Math.floor(cpus().length / 2)), timeoutInMilliseconds: 120000,
+    onProgress: ({ progress }) => { const p = Math.floor(progress * 20); if (p !== last) { last = p; log(`render ${label} ${p * 5}%`); } } });
+  const file = join(dest, `${stem}.mp4`);
+  const vf = [blur > 1 ? `tmix=frames=${blur},fps=${fps}` : null, "scale=in_range=full:out_range=tv"].filter(Boolean).join(",");
+  run("ffmpeg", ["-y", "-v", "error", "-i", raw, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : ["-an"]),
+    "-vf", vf, "-c:v", "libx264", "-profile:v", "high", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", String(fps), "-movflags", "+faststart", file]);
+  if (!draft && label === "master") {
+    run("ffmpeg", ["-y", "-v", "error", "-i", file, "-vf", "fps=30", "-c:v", "libx264", "-profile:v", "high", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
+      "-preset", "slow", "-pix_fmt", "yuv420p", ...(audio ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]), "-movflags", "+faststart", join(dest, `${scene.name}-linkedin.mp4`)]);
+  }
+  run("ffmpeg", ["-y", "-v", "error", "-ss", String(scene.poster ?? settle(scene.beats[0], scene)), "-i", file, "-frames:v", "1", join(dest, poster)]);
+  return file;
 }
 
 /** Captions on: word timings from the narration audio (local whisper-cli), written to dest/words.json and handed to the composition on scene.words. */

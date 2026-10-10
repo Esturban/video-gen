@@ -3,6 +3,7 @@
 import { accessSync, constants, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { resolveBrandSlot } from "../../engine/brandSlotMath.js";
+import { variantProblems } from "./variants.mjs";
 
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 const BANNED_A = /(?<!\d)(14|4) hours/i; // "14 hours" or "4 hours" ...
@@ -102,6 +103,14 @@ function checkCaptions(scene) {
   return (scene.beats ?? []).some((b) => b.narration) ? [] : ["captions are on but no beat has narration: add narration or turn captions off"];
 }
 
+/** One item per declared variant (CMO-7577): size matches its name, overrides only touch layout. A malformed "variants" field is one failing item. */
+function checkVariants(scene) {
+  return Object.entries(variantProblems(scene ?? {})).map(([name, problems]) => {
+    const size = Array.isArray(scene.variants?.[name]?.size) ? scene.variants[name].size.join("x") : "no size";
+    return name === "variants" ? result("variants", "variants valid", problems) : result(`variant:${name}`, `variant ${name}: ${size}, same beats, layout overrides only`, problems);
+  });
+}
+
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */
 export function runChecklist({ dir, brandDirs, outDir }) {
   const { scene, problems: sceneProblems } = checkScene(dir);
@@ -116,6 +125,7 @@ export function runChecklist({ dir, brandDirs, outDir }) {
     result("banned", "banned figure pair absent", copy.banned),
     ...slot,
     ...captions,
+    ...checkVariants(scene),
     result("output", "output dir writable", checkWritable(outDir)),
   ];
 }

@@ -89,3 +89,22 @@ test("captions on a narrated scene pass the captions item", () => {
   const items = runChecklist(fixture({ scene }));
   assert.ok(items.some((i) => i.id === "captions" && i.pass));
 });
+
+const VARIANTS = { "9x16": { size: [1080, 1920], layoutOverrides: { 0: { layout: { x: 1 } } } }, "1x1": { size: [1080, 1080] } };
+
+test("one checklist item per variant, each passing when valid (CMO-7577)", () => {
+  const items = runChecklist(fixture({ scene: { ...SCENE, size: [1440, 1440], variants: VARIANTS } }));
+  assert.deepEqual(failed(items), []);
+  const v = items.filter((i) => i.id.startsWith("variant:"));
+  assert.deepEqual(v.map((i) => i.id), ["variant:9x16", "variant:1x1"]);
+  assert.match(v[0].label, /1080x1920/);
+});
+
+test("a bad variant fails only its own item", () => {
+  const scene = { ...SCENE, variants: { ...VARIANTS, "9x16": { size: [1080, 1080] } } };
+  assert.deepEqual(failed(runChecklist(fixture({ scene }))), ["variant:9x16"]);
+});
+
+test("no variant items when the scene declares none", () => {
+  assert.equal(runChecklist(fixture()).some((i) => i.id.startsWith("variant")), false);
+});

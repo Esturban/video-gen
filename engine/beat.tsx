@@ -32,6 +32,8 @@ export type Scene = {
   brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
   captions?: boolean | { maxWords?: number; maxGap?: number; linger?: number }; // word-timed captions from the narration audio (CMO-7584); absent or false means none
   words?: { text: string; start: number; end: number; beat?: number }[]; // set by bin/video from words.json when captions are on
+  variants?: Record<string, { size: [number, number]; layoutOverrides?: Record<string, Partial<Beat>> }>; // extra compositions from the same beats, e.g. "9x16" (CMO-7577; bin/lib/variants.mjs)
+  variant?: string; // set by bin/video on the scene a variant renders; absent on the master
   beats: Beat[];
 };
 

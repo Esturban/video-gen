@@ -61,3 +61,18 @@ test("render with a bad --tokens value exits 2", () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /whole number/);
 });
+
+test("check runs the checklist per variant and passes a scene with a valid 9x16 variant (CMO-7577)", () => {
+  const { dir } = fixture({ ...SCENE, variants: { "9x16": { size: [1080, 1920] } } });
+  const r = video("check", dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /PASS {2}variant 9x16: 1080x1920/);
+  assert.match(r.stdout, /checklist PASS: 7\/7/);
+});
+
+test("check fails a variant whose size does not match its name", () => {
+  const { dir } = fixture({ ...SCENE, variants: { "9x16": { size: [1080, 1080] } } });
+  const r = video("check", dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /FAIL {2}variant 9x16/);
+});

@@ -192,3 +192,46 @@ test("the camera is still while any digit changes, so no text can smear", () => 
   assert.ok(still(14.7, 15.9), "number count");
   assert.ok(still(19.5, 21.2), "card percentages count");
 });
+
+// ---- 9:16 variant (CMO-7577): the same beat re-composed for a tall frame through layout and camera overrides only, no engine change ----
+// Mirrors content-thinking scenes/promo/data-story-morph variants["9x16"]: the chain flows DOWN the canvas instead of across it, the bars stand taller.
+export const VERTICAL = {
+  layout: {
+    ring: { inner: 130, outer: 210, dotR: 36 }, strip: { cx: 0, cy: 900 }, bars: { baseY: 1240, width: 120, gap: 36, maxH: 640 }, line: { baseY: 1200, height: 600 },
+    number: { cx: 0, cy: 2000 }, cards: { width: 160, height: 340, gap: 20 }, bento: { gapY: 60, tileH: 360, areaH: 210, stackW: 500 },
+  },
+  camera: [[0, 0, 0, 1.3], [2.9, 0, 6, 1.15], [4.6, 2, 12, 1.12], [6.6, 0, 900, 0.9], [7.6, 0, 945, 1.05], [9.4, 0, 952, 1.06], [10.8, 0, 948, 1.08], [12.4, 0, 945, 1.08], [13.3, 0, 900, 1], [14.7, 0, 2000, 1.25], [17.5, 0, 2000, 1.25], [19.5, 0, 2000, 1], [22.8, 0, 2000, 1], [24.6, 0, 2210, 1.05], [26.8, 0, 2215, 1.05]],
+};
+const TALL = [1080, 1920];
+const SAFE = 48; // 64 px on the 1440 reference, scaled by min(w, h) / 1440
+const OVERLAY_BAND = 140; // the title (top-left) and the "Sample data" label and signature (bottom) live in this band
+
+/** Frames (at 30/s) where any visible shape or bar label leaves the tall frame's safe box. */
+function outsideTallFrame(cfg) {
+  const s9 = buildStory(cfg);
+  const [W, H] = TALL;
+  const bad = [];
+  for (let f = 0; f <= Math.round(END * 30); f++) {
+    const s = s9.at(f / 30);
+    const c = s.camera;
+    const sx = (x) => (x - c.cx) * c.zoom + W / 2;
+    const sy = (y) => (y - c.cy) * c.zoom + H / 2;
+    const b = visiblePolys(s).map(bounds).reduce((a, q) => ({ x0: Math.min(a.x0, q.x0), x1: Math.max(a.x1, q.x1), y0: Math.min(a.y0, q.y0), y1: Math.max(a.y1, q.y1) }));
+    const labelY = Math.max(-Infinity, ...s.labels.filter((l) => l.opacity > 0.05).map((l) => l.y + 8));
+    if (sx(b.x0) < SAFE || sx(b.x1) > W - SAFE || sy(b.y0) < OVERLAY_BAND || Math.max(sy(b.y1), sy(labelY)) > H - OVERLAY_BAND) bad.push(f / 30);
+  }
+  return bad;
+}
+
+test("9:16 variant: overrides alone keep every shape inside the tall frame's safe box on every frame", () => {
+  const bad = outsideTallFrame({ ...CFG, ...VERTICAL });
+  assert.deepEqual(bad, [], `out of the safe box at ${bad.slice(0, 5).join(", ")}s`);
+});
+
+test("9:16 variant is a re-composition, not a crop: the master layout and camera do not fit the tall frame", () => {
+  assert.ok(outsideTallFrame(CFG).length > 0, "the master's horizontal chain should overflow 1080 px wide");
+  const tall = buildStory({ ...CFG, ...VERTICAL });
+  const bar = (st) => st.barTop.map((top) => st.layout.bars.baseY - top);
+  assert.ok(Math.max(...bar(tall)) > Math.max(...bar(story)), "bars stand taller in the tall frame");
+  assert.ok(tall.layout.number.cy > tall.layout.strip.cy && tall.layout.number.cx === tall.layout.strip.cx, "the chain flows down, not across");
+});
