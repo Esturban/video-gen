@@ -6,7 +6,7 @@ prints: [{text, aligner, start, rule}, ...], one per word, seconds on the media'
 1. The audio track is decoded with ffmpeg and force-aligned to the words' text with torchaudio's MMS_FA (wav2vec2, local
    weights, downloaded once). That gives a coarse start per word that owes nothing to the TTS engine or to words.json.
 2. CTC aligners start a word late, most on hiss and stops, so voice/onsets.py moves each start to the acoustic landmark its
-   first sound has: the end of a pause, the start of a stop's closure, the start of frication, or (for a weak first sound) the
+   first sound has: the end of a pause, a stop's burst, the start of frication, or (for a weak first sound) the
    end of the word before's hiss or nasal murmur. A word with no landmark in reach keeps the aligner time ("aligner" rule). A word with no letters (a bare number) cannot be aligned and is null.
 """
 # REUSE_CHECKED: none   searched the repos for forced_align and MMS_FA; the probe scripts this grew from were scratch

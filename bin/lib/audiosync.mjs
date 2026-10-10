@@ -1,6 +1,6 @@
 // Caption sync against the audio itself (CMO-7584 follow-up). captionsync.mjs proves the highlight follows words.json; this proves
 // words.json follows the voice. voice/audioref.py decodes the delivered mp4's own audio track, force-aligns the words' TEXT (never
-// their times) with a local model, and refines each word to an acoustic onset (pause end, stop closure, or frication start). For
+// their times) with a local model, and refines each word to an acoustic onset (pause end, stop burst, or frication start). For
 // the same three checked words, the highlight frame read from the render must land within SYNC_TOLERANCE_FRAMES of the frame that
 // audio onset maps to. Everything is local; the aligner model downloads once, like the whisper model before it.
 import { execFileSync } from "node:child_process";

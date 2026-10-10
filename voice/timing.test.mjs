@@ -88,11 +88,13 @@ words.write_text(json.dumps({'key': 'k', 'words': []}))
 r['whisper_cache_timed_engine'] = narrate.needs_voice(False, wav, key, words, 'k', 'kokoro')
 r['whisper_cache_plain_engine'] = narrate.needs_voice(False, wav, key, words, 'k', None)
 words.write_text(json.dumps({'key': 'k', 'source': 'kokoro', 'words': []}))
+r['older_onset_rules'] = narrate.needs_voice(False, wav, key, words, 'k', 'kokoro')
+words.write_text(json.dumps({'key': 'k', 'source': 'kokoro', 'rules': narrate.onsets.RULES, 'words': []}))
 r['own_cache'] = narrate.needs_voice(False, wav, key, words, 'k', 'kokoro')
 r['forced'] = narrate.needs_voice(True, wav, key, words, 'k', 'kokoro')
 r['key_changed'] = narrate.needs_voice(False, wav, key, words, 'k2', 'kokoro')
 print(json.dumps(r))`, dir);
-  assert.deepEqual(res, { whisper_cache_timed_engine: true, whisper_cache_plain_engine: false, own_cache: false, forced: true, key_changed: true });
+  assert.deepEqual(res, { whisper_cache_timed_engine: true, whisper_cache_plain_engine: false, older_onset_rules: true, own_cache: false, forced: true, key_changed: true });
 });
 
 test("timed_words() moves a weak-onset word after a hissing word to where the hiss ends, and ends the word before there", () => {

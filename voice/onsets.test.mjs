@@ -60,9 +60,17 @@ test("first_sound() sorts a word by how its first sound starts in the audio", ()
   assert.deepEqual(got, { timed: "stop", short: "fricative", this: "other", Each: "other", cell: "fricative", chip: "stop", phone: "fricative", hold: "fricative", Kite: "stop", "\"Gone": "stop" });
 });
 
-test("onset() puts a stop-initial word at the start of its closure, not at the late aligner guess", () => {
-  const t = py("x = np.concatenate([tone(0.5), gap(0.06), hiss(0.01), tone(0.3)]); print(json.dumps(onsets.onset(x, SR, 0.58, 'stop')))");
-  assert.ok(Math.abs(t.start - 0.5) <= 0.01 && t.rule === "closure", JSON.stringify(t));
+test("onset() puts a stop-initial word at its audible burst, not at the silent closure before it nor the late aligner guess", () => {
+  // closure 0.50 to 0.56 is silent; the burst (first audible energy) is at 0.56
+  for (const guess of [0.58, 0.53]) {
+    const t = py(`x = np.concatenate([tone(0.5), gap(0.06), hiss(0.01), tone(0.3)]); print(json.dumps(onsets.onset(x, SR, ${guess}, 'stop')))`);
+    assert.ok(Math.abs(t.start - 0.56) <= 0.005 && t.rule === "burst", `${guess}: ${JSON.stringify(t)}`);
+  }
+});
+
+test("onset() puts a voiced stop at its burst when the closure carries a faint voice bar", () => {
+  const t = py("x = np.concatenate([tone(0.5), 0.02*tone(0.05), hiss(0.01), tone(0.3)]); print(json.dumps(onsets.onset(x, SR, 0.57, 'stop')))");
+  assert.ok(Math.abs(t.start - 0.55) <= 0.005 && t.rule === "burst", JSON.stringify(t));
 });
 
 test("onset() puts a fricative-initial word where the frication starts", () => {

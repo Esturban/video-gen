@@ -97,7 +97,7 @@ def retime(beats: list, durations: dict) -> list:
 
 def timed_words(words: list, wav: Path) -> list:
     """The engine's word times moved onto the wav's own landmarks: a word that starts inside a pause starts where the voice comes
-    back; then each start goes to its first sound's onset (closure, hiss, end of the word before's hiss or murmur) when one is
+    back; then each start goes to its first sound's onset (stop burst, hiss, end of the word before's hiss or murmur) when one is
     within reach, and the word before ends there. A word with no landmark keeps the engine's time."""
     sr = 24000
     x = onsets.read_mono(wav, sr)
@@ -116,7 +116,7 @@ def timed_words(words: list, wav: Path) -> list:
 
 def needs_voice(force: bool, wav: Path, key_file: Path, words_file: Path, key: str, source) -> bool:
     """Synthesise again when forced, when the wav or its key is missing or stale, or when a timing engine (`source` set) has
-    no word file of its own beside the wav (an older whisper-cli cache, say)."""
+    no word file of its own beside the wav (an older whisper-cli cache, say) or one made under older onset rules."""
     if force or not wav.exists() or not key_file.exists() or key_file.read_text() != key:
         return True
     if source is None:
@@ -125,7 +125,7 @@ def needs_voice(force: bool, wav: Path, key_file: Path, words_file: Path, key: s
         cached = json.loads(words_file.read_text())
     except (OSError, ValueError):
         return True
-    return cached.get("key") != key or cached.get("source") != source
+    return cached.get("key") != key or cached.get("source") != source or cached.get("rules") != onsets.RULES
 
 
 def main() -> None:
@@ -153,7 +153,7 @@ def main() -> None:
             words = engine.synth(b["narration"], wav, cfg["voice"], cfg["lang"])
             key_file.write_text(key)
             if source and words:
-                words_file.write_text(json.dumps({"key": key, "source": source, "words": timed_words(words, wav)}, indent=1) + "\n")
+                words_file.write_text(json.dumps({"key": key, "source": source, "rules": onsets.RULES, "words": timed_words(words, wav)}, indent=1) + "\n")
         durations[b["n"]] = duration(wav)
     timing = retime(beats, durations)
     (scene_dir / "timing.json").write_text(json.dumps(timing, indent=1) + "\n")

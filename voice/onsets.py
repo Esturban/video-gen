@@ -7,7 +7,7 @@ Two users:
   actually comes back, measured from the wav.
 - voice/audioref.py: the caption sync check needs each checked word's onset from the delivered audio, independent of
   words.json. A local forced aligner gives a coarse time per word; onset() refines it to an acoustic landmark chosen by how the
-  word's first sound starts: the end of a pause, the start of a stop's closure, or the start of frication. A word whose first
+  word's first sound starts: the end of a pause, a stop's burst (the first audible energy after its silent closure), or the start of frication. A word whose first
   sound is weak (a vowel, "th" as in "this", a nasal) takes the end of the word before's last sound when that sound is a hiss
   or a nasal murmur. A word with none of these keeps the aligner's time. narrate.py runs the same refinement on the TTS times.
 """
@@ -17,6 +17,7 @@ import subprocess
 
 import numpy as np
 
+RULES = "burst"  # names the onset rules a cached words file was made with; change it when a rule moves
 FLOOR_DB = -45.0  # below this (dBFS RMS) a stretch counts as silence
 MIN_PAUSE_S = 0.1  # shorter silences are stop closures, not pauses
 LEVEL_HOP_S = 0.0025  # level frames for pause and closure finding
@@ -25,6 +26,8 @@ PAUSE_AFTER_S = 0.04  # ...or this far before it
 CLOSURE_SEARCH_S = 0.12  # how far before the aligner start a stop's closure is looked for
 CLOSURE_DEPTH_DB = 20.0  # a closure is at least this far below the sound before it
 CLOSURE_DROP_DB = 15.0  # the closure starts where the level first falls this far below that sound
+BURST_RISE_DB = 15.0  # a stop is heard where the level first climbs this far above the closure's floor (its burst)
+BURST_SEARCH_S = 0.15  # how far after the closure's floor the burst is looked for
 SPEC_HOP_S, SPEC_WIN_S = 0.005, 0.02  # spectral frames for frication finding
 LOW_BAND, HIGH_CUT = (80.0, 900.0), 3000.0  # voicing band and frication band, Hz
 FRICATION_REACH_S = 0.12  # an aligner start this far after a frication run still belongs to it
@@ -134,7 +137,7 @@ def _pause_onset(runs: list, guess: float):
     return min(ends, key=lambda e: abs(e - guess)) if ends else None
 
 
-def _closure_onset(x: np.ndarray, sr: int, guess: float):
+def _burst_onset(x: np.ndarray, sr: int, guess: float):
     db = level_db(x, sr)
     lo, hi = max(0, int((guess - CLOSURE_SEARCH_S) / LEVEL_HOP_S)), min(len(db), int((guess + AHEAD_S) / LEVEL_HOP_S) + 1)
     if hi - lo < 2:
@@ -145,7 +148,12 @@ def _closure_onset(x: np.ndarray, sr: int, guess: float):
         return None
     p = m - (len(before) - 1) + int(np.argmax(before))
     k = next((k for k in range(p, m + 1) if db[k] < db[p] - CLOSURE_DROP_DB), m)
-    return k * LEVEL_HOP_S if k >= lo else None  # a closure that began before the window belongs to the word before
+    if k < lo:
+        return None  # a closure that began before the window belongs to the word before
+    # the word is heard at the burst, the first frame after the closure's floor that rises back BURST_RISE_DB above it
+    floor, last = db[m], min(len(db), m + int(BURST_SEARCH_S / LEVEL_HOP_S) + 1)
+    b = next((b for b in range(m + 1, last) if db[b] >= floor + BURST_RISE_DB), None)
+    return b * LEVEL_HOP_S if b is not None else None
 
 
 def _bands(x: np.ndarray, sr: int, t0: float, t1: float):
@@ -204,7 +212,7 @@ def onset(x: np.ndarray, sr: int, guess: float, sound: str, prev: str = None) ->
     at = _pause_onset(pauses(x, sr), guess)
     if at is not None:
         return {"start": round(at, 4), "rule": "pause"}
-    finders = {"stop": [(_closure_onset, "closure")], "fricative": [(_frication_onset, "frication")]}.get(sound, [])
+    finders = {"stop": [(_burst_onset, "burst")], "fricative": [(_frication_onset, "frication")]}.get(sound, [])
     if sound == "other" and prev in ("fricative", "nasal"):
         finders = [(lambda a, r, g: _edge(a, r, g, prev), f"{'frication' if prev == 'fricative' else 'nasal'} end")]
     for find, rule in finders:
