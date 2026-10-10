@@ -43,6 +43,7 @@ function checkScene(dir) {
   if (!Array.isArray(scene.beats) || scene.beats.length === 0) return { scene, problems: [...problems, "beats must be a non-empty array"] };
   let prev = 0;
   for (const b of scene.beats) {
+    if (b.narration && b.start === undefined && b.end === undefined) continue; // timed from its audio by the voice step (CMO-7584)
     if (!(b.end > b.start)) problems.push(`beat ${b.n}: needs start < end (got ${b.start}..${b.end})`);
     else if (b.start < prev) problems.push(`beat ${b.n}: starts at ${b.start}, before the previous beat ends (${prev})`);
     else prev = b.end;
@@ -95,11 +96,18 @@ export function validateBrandSlotAssets(dir, spec) {
   return [];
 }
 
+/** Captions are word-timed from the narration audio, so a captioned scene needs at least one narrated beat (CMO-7584). */
+function checkCaptions(scene) {
+  if (scene.captions !== true && typeof scene.captions !== "object") return [`"captions" must be true or an options object, got ${JSON.stringify(scene.captions)}`];
+  return (scene.beats ?? []).some((b) => b.narration) ? [] : ["captions are on but no beat has narration: add narration or turn captions off"];
+}
+
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */
 export function runChecklist({ dir, brandDirs, outDir }) {
   const { scene, problems: sceneProblems } = checkScene(dir);
   const copy = existsSync(dir) ? checkCopy(dir) : { dashes: [], banned: [] };
   const slot = scene?.brandSlot === undefined ? [] : [result("brandSlot", "brand slot valid", validateBrandSlotAssets(dir, scene.brandSlot))]; // only when the scene asks for one
+  const captions = scene?.captions ? [result("captions", "captions have narration to time them", checkCaptions(scene))] : []; // only when the scene turns captions on
   return [
     result("scene", "scene.json valid", sceneProblems),
     result("kinds", "every beat kind present in kinds.tsx", scene ? checkKinds(dir, scene) : ["no scene to check"]),
@@ -107,6 +115,7 @@ export function runChecklist({ dir, brandDirs, outDir }) {
     result("dashes", "no em or en dash in on-screen copy", copy.dashes),
     result("banned", "banned figure pair absent", copy.banned),
     ...slot,
+    ...captions,
     result("output", "output dir writable", checkWritable(outDir)),
   ];
 }

@@ -2,7 +2,8 @@
 
 Run through the kit: bin/video voice <scene> [--force]   (bin/video render calls it for you)
 Writes <scene>/audio/beat<n>.wav and <scene>/timing.json (start, end, voiceAt, voice per beat).
-Beats without narration keep the start/end written in scene.json.
+A narrated beat needs no start/end in scene.json: it lasts LEAD + the measured audio + a hold (CMO-7584).
+A beat without narration keeps its own length; once a narrated beat has come before it, it moves to follow it.
 
 The voice engine is pluggable: scene.json "voice" (or the brand's "voice") names a module in
 voice/engines/. Each engine is one file exposing synth(text, out_wav, voice, lang). Kokoro-82M
@@ -21,6 +22,7 @@ KIT = Path(__file__).resolve().parent.parent
 LEAD = 0.4  # silence before the voice in each beat, seconds
 HOLD = 1.2  # silence after the voice, before the next beat
 SECTION_HOLD = 2.0  # longer pause when the next beat changes kind (a new part starts)
+FPS = 60  # beat edges snap to a frame at the highest rate we render
 DEFAULT_VOICE = {"engine": "kokoro", "voice": "am_michael", "lang": "a"}
 
 
@@ -51,6 +53,41 @@ def find_brand(scene_dir: Path, name: str) -> Path:
     raise SystemExit(f'brand "{name}" not found in the consumer brands dir or {KIT / "brands"}')
 
 
+def snap(t: float) -> float:
+    """Snap a time to a frame edge at FPS, the highest rate we render."""
+    return round(round(t * FPS) / FPS, 4)
+
+
+def retime(beats: list, durations: dict) -> list:
+    """Beat times from measured narration lengths, no hand-counted seconds.
+
+    durations maps beat n to the measured length of its wav, in seconds. A narrated beat lasts
+    LEAD + voice + hold (+ its optional "tail"); the hold is SECTION_HOLD when the next beat is a
+    new kind. A beat without narration keeps its own length; before any narrated beat it keeps its
+    hand times and is left out of the result, after one it is moved to follow. Returns the
+    timing.json rows.
+    """
+    t, timing, moved = 0.0, [], False
+    for i, b in enumerate(beats):
+        if not b.get("narration"):
+            if not moved:
+                t = b["end"]
+                continue
+            start = snap(max(t, b["start"]))
+            end = snap(start + b["end"] - b["start"])
+            timing.append({"n": b["n"], "start": start, "end": end})
+            t = end
+            continue
+        voice = durations[b["n"]]
+        nxt = beats[i + 1]["kind"] if i + 1 < len(beats) else None
+        hold = SECTION_HOLD if nxt is not None and nxt != b["kind"] else HOLD
+        start = snap(t)
+        end = snap(t + LEAD + voice + hold + b.get("tail", 0.0))
+        timing.append({"n": b["n"], "start": start, "end": end, "voiceAt": LEAD, "voice": round(voice, 3)})
+        t, moved = end, True
+    return timing
+
+
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if not args:
@@ -63,11 +100,9 @@ def main() -> None:
     engine = load_engine(cfg["engine"])
     audio = scene_dir / "audio"
     audio.mkdir(exist_ok=True)
-    beats, t, timing = scene["beats"], 0.0, []
-    fps = 60  # snap beat edges to a frame at the highest rate we render
-    for i, b in enumerate(beats):
+    beats, durations = scene["beats"], {}
+    for b in beats:
         if not b.get("narration"):
-            t = b["end"]
             continue
         wav, key_file = audio / f"beat{b['n']}.wav", audio / f"beat{b['n']}.key"
         key = hashlib.sha1(json.dumps([b["narration"], cfg], sort_keys=True).encode()).hexdigest()
@@ -75,15 +110,11 @@ def main() -> None:
             print(f"voice: beat {b['n']} ({cfg['engine']}, {cfg['voice']})", file=sys.stderr)
             engine.synth(b["narration"], wav, cfg["voice"], cfg["lang"])
             key_file.write_text(key)
-        voice = duration(wav)
-        nxt = beats[i + 1]["kind"] if i + 1 < len(beats) else None
-        hold = SECTION_HOLD if nxt is not None and nxt != b["kind"] else HOLD
-        start = round(round(t * fps) / fps, 4)
-        end = round(round((t + LEAD + voice + hold + b.get("tail", 0.0)) * fps) / fps, 4)
-        timing.append({"n": b["n"], "start": start, "end": end, "voiceAt": LEAD, "voice": round(voice, 3)})
-        t = end
+        durations[b["n"]] = duration(wav)
+    timing = retime(beats, durations)
     (scene_dir / "timing.json").write_text(json.dumps(timing, indent=1) + "\n")
-    print(f"voice: {len(timing)} narrated beats, {t:.1f}s total", file=sys.stderr)
+    total = timing[-1]["end"] if timing else 0.0
+    print(f"voice: {len(durations)} narrated beats, {total:.1f}s total", file=sys.stderr)
 
 
 if __name__ == "__main__":

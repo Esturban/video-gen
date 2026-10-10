@@ -68,3 +68,24 @@ test("fails output when the directory cannot be created", () => {
   const args = { ...fixture(), outDir: "/proc/nope/out" };
   assert.deepEqual(failed(runChecklist(args)), ["output"]);
 });
+
+test("a narrated beat may leave out start and end: its times come from the audio (CMO-7584)", () => {
+  const scene = { ...SCENE, beats: [{ n: 0, kind: "offer", narration: "Hello." }, { n: 1, kind: "offer", narration: "Bye." }] };
+  assert.deepEqual(failed(runChecklist(fixture({ scene }))), []);
+});
+
+test("a beat with no narration still needs start and end", () => {
+  const scene = { ...SCENE, beats: [{ n: 0, kind: "offer" }] };
+  assert.deepEqual(failed(runChecklist(fixture({ scene }))), ["scene"]);
+});
+
+test("captions on a scene with no narrated beat fail the captions item", () => {
+  const scene = { ...SCENE, captions: true };
+  assert.deepEqual(failed(runChecklist(fixture({ scene }))), ["captions"]);
+});
+
+test("captions on a narrated scene pass the captions item", () => {
+  const scene = { ...SCENE, captions: true, beats: [{ n: 0, kind: "offer", narration: "Hello." }] };
+  const items = runChecklist(fixture({ scene }));
+  assert.ok(items.some((i) => i.id === "captions" && i.pass));
+});

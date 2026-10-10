@@ -3,6 +3,7 @@ import React from "react";
 import { AbsoluteFill, interpolate, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
 import { Beat, BeatContext, Brand, BrandContext, Scene, SceneContext } from "./beat";
 import { BrandSlot } from "./brandSlot";
+import { Captions } from "./captions";
 import { KINDS } from "@video/kinds"; // alias set per scene by bin/lib/webpack-override.mjs
 
 export type VideoProps = { scene: Scene; brand: Brand; fps: number };
@@ -59,6 +60,7 @@ export const Video: React.FC<VideoProps> = ({ scene, brand }) => {
           })}
           {scene.progress ? <Progress beats={beats} /> : null}
           {scene.brandSlot ? <BrandSlot spec={scene.brandSlot} /> : null}
+          {scene.captions && scene.words ? <Captions words={scene.words} options={typeof scene.captions === "object" ? scene.captions : undefined} /> : null}
         </AbsoluteFill>
       </BrandContext.Provider>
     </SceneContext.Provider>

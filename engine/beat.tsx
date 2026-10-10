@@ -15,7 +15,7 @@ export type Beat = {
   pace?: number; // 2 means every animation in the beat takes twice as long
   caption?: string;
   narration?: string;
-  voiceAt?: number; // seconds into the beat where narration starts
+  voiceAt?: number; // seconds into the beat where narration starts (written by the voice step from the audio, not by hand)
   voice?: number; // narration length, seconds
   [field: string]: unknown;
 };
@@ -30,6 +30,8 @@ export type Scene = {
   data?: Record<string, unknown>; // scene-wide data for this video's kinds
   render?: { fps: number; blur: number }; // set by bin/video: delivered fps and motion-blur subframes per output frame
   brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
+  captions?: boolean | { maxWords?: number; maxGap?: number; linger?: number }; // word-timed captions from the narration audio (CMO-7584); absent or false means none
+  words?: { text: string; start: number; end: number; beat?: number }[]; // set by bin/video from words.json when captions are on
   beats: Beat[];
 };
 

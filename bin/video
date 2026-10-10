@@ -8,6 +8,8 @@ import { cpus } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mjs";
 import { checkFrames, DEAD_MAX_HOLD_S, formatFrameReport } from "./lib/checkframes.mjs";
+import { checkCaptionSync, formatSyncReport } from "./lib/captionsync.mjs";
+import { wordsForScene } from "./lib/words.mjs";
 import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 
@@ -23,6 +25,7 @@ Usage:
   video frames <mp4>     frame gate on a rendered file: blank frames, dead stretches, teleports, plus a contact sheet. Exit 0 or 2
   video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
   video voice  <scene>   narration only: synthesise changed beats, retime the scene from the audio
+                         (a scene with "captions": true also gets out/<area>/<name>/words.json on render, local whisper-cli)
   video studio <scene>   open the scene in Remotion Studio to preview while editing
   video list             every video in the registry, stale ones (${STALE_DAYS}+ days) flagged
   video archive <name>   move a stale video's scene folder to archive/
@@ -181,14 +184,15 @@ function probe(master, scene, fps) {
 async function render(dir, flags, paths, tokens) {
   const t0 = Date.now();
   gate(dir, paths);
-  if (hasNarration(loadScene(dir, paths.brandDirs).scene)) voiceStep(dir, false);
-  const loaded = loadScene(dir, paths.brandDirs);
-  const { scene } = loaded;
+  if (hasNarration(JSON.parse(readFileSync(join(dir, "scene.json"), "utf8")))) voiceStep(dir, false); // raw file: narrated beats may have no times until the voice step writes them
+  const timed = loadScene(dir, paths.brandDirs);
   const fps = flags.draft ? 30 : Number(flags.fps ?? 60);
   const blur = flags.draft ? 1 : Number(flags.blur ?? 2);
   if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
-  const dest = join(paths.out, scene.area, scene.name);
+  const dest = join(paths.out, timed.scene.area, timed.scene.name);
   mkdirSync(join(dest, "stills"), { recursive: true });
+  const loaded = timed.scene.captions ? { ...timed, scene: { ...timed.scene, words: captionWords(dir, timed.scene, dest) } } : timed;
+  const { scene } = loaded;
   const b = await bundleScene(dir, loaded, fps * blur, { fps, blur });
   const { renderMedia } = await import("@remotion/renderer");
   const raw = join(dest, ".raw.mp4");
@@ -218,7 +222,26 @@ async function render(dir, flags, paths, tokens) {
   log(`done in ${minutes.toFixed(1)} min`);
   console.log(master);
   const frames = frameGate(master, dest, flags);
+  const sync = scene.captions ? captionSync(master, loaded, fps) : { pass: true };
   if (!frames.pass) fail(`frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}. The render is kept at ${master}; fix the scene and render again.`);
+  if (!sync.pass) fail(`caption sync FAILED: a checked word's highlight is more than 2 frames off its time. The render is kept at ${master}.`);
+}
+
+/** Captions on: word timings from the narration audio (local whisper-cli), written to dest/words.json and handed to the composition on scene.words. */
+function captionWords(dir, scene, dest) {
+  let words;
+  try { words = wordsForScene(dir, scene, log); } catch (e) { fail(`captions: ${e.message}`); }
+  writeFileSync(join(dest, "words.json"), JSON.stringify(words, null, 1) + "\n");
+  log(`words: ${words.length} words from ${scene.beats.filter((x) => x.narration).length} narrated beats -> ${join(dest, "words.json")}`);
+  return words;
+}
+
+/** Read frames of the delivered master around three words and check the highlight lands within 2 frames of each word's time. */
+function captionSync(master, { scene, brand }, fps) {
+  const [width, height] = scene.size ?? [1920, 1080];
+  const result = checkCaptionSync(master, { words: scene.words, brand, width, height, fps, options: typeof scene.captions === "object" ? scene.captions : {} });
+  log(formatSyncReport(result, fps));
+  return result;
 }
 
 /** Frame gate on a finished mp4: prints the report (stderr during render, stdout standalone) and returns it. The caller decides what a FAIL does. */
