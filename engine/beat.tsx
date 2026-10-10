@@ -17,6 +17,9 @@ export type Beat = {
   narration?: string;
   voiceAt?: number; // seconds into the beat where narration starts (written by the voice step from the audio, not by hand)
   voice?: number; // narration length, seconds
+  enter?: string; // plan note (CMO-7537): how this beat comes in; read by humans and shotlist.md, not by any part
+  exit?: string; // plan note: how it leaves
+  why?: string; // plan note: why the beat is there; required and non-empty on every beat when the scene sets plan: true
   [field: string]: unknown;
 };
 
@@ -30,6 +33,7 @@ export type Scene = {
   data?: Record<string, unknown>; // scene-wide data for this video's kinds
   render?: { fps: number; blur: number }; // set by bin/video: delivered fps and motion-blur subframes per output frame
   brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
+  plan?: boolean; // opt in to the beat plan check: every beat needs a non-empty why (CMO-7537)
   captions?: boolean | { maxWords?: number; maxGap?: number; linger?: number }; // word-timed captions from the narration audio (CMO-7584); absent or false means none
   words?: { text: string; start: number; end: number; beat?: number }[]; // set by bin/video from words.json when captions are on
   variants?: Record<string, { size: [number, number]; layoutOverrides?: Record<string, Partial<Beat>> }>; // extra compositions from the same beats, e.g. "9x16" (CMO-7577; bin/lib/variants.mjs)

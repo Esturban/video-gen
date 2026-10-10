@@ -7,6 +7,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSyn
 import { cpus } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mjs";
+import { appendRenderEntry } from "./lib/review.mjs";
+import { shotlist } from "./lib/shotlist.mjs";
 import { checkFrames, DEAD_MAX_HOLD_S, formatFrameReport } from "./lib/checkframes.mjs";
 import { checkCaptionSync, formatSyncReport } from "./lib/captionsync.mjs";
 import { wordsForScene } from "./lib/words.mjs";
@@ -94,7 +96,7 @@ function projectPaths(dir, flags) {
 }
 
 function pathsFor(root, outFlag) {
-  return { root, out: outFlag ?? join(root, "out"), customOut: Boolean(outFlag), registry: join(root, "registry.csv"), costlog: join(root, "cost-log.csv"), brandDirs: [join(root, "brands"), join(KIT, "brands")] };
+  return { root, out: outFlag ?? join(root, "out"), customOut: Boolean(outFlag), reviews: join(outFlag ?? root, "reviews"), registry: join(root, "registry.csv"), costlog: join(root, "cost-log.csv"), brandDirs: [join(root, "brands"), join(KIT, "brands")] };
 }
 
 function loadScene(dir, brandDirs) {
@@ -201,6 +203,7 @@ async function render(dir, flags, paths, tokens) {
   if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
   const dest = join(paths.out, timed.scene.area, timed.scene.name);
   mkdirSync(join(dest, "stills"), { recursive: true });
+  writeFileSync(join(dest, "shotlist.md"), shotlist(timed.scene));
   const loaded = timed.scene.captions ? { ...timed, scene: { ...timed.scene, words: captionWords(dir, timed.scene, dest) } } : timed;
   const { scene } = loaded;
   const serveUrl = await bundleOnce(dir, scene.name);
@@ -227,6 +230,7 @@ async function render(dir, flags, paths, tokens) {
   // Frame gate and caption sync on every cut, each with its own contact sheet next to the master; all are reported before any FAIL exits.
   const failures = cuts.flatMap((cut, i) => {
     const frames = frameGate(files[i], dest, flags);
+    appendRenderEntry(paths.reviews, { name: scene.name, date: new Date().toISOString().slice(0, 10), label: cut.label, report: formatFrameReport(frames) });
     const sync = cut.loaded.scene.captions ? captionSync(files[i], cut.loaded, fps) : { pass: true };
     return [
       ...(frames.pass ? [] : [`${cut.label}: frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}`]),

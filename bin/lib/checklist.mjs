@@ -2,6 +2,7 @@
 // Source of the rules: the DEV-7364 pre-render checklist plus house rules (no em or en dash, banned figure pair).
 import { accessSync, constants, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveBrandSlot } from "../../engine/brandSlotMath.js";
 import { variantProblems } from "./variants.mjs";
 import { briefProblems } from "./brief.mjs";
@@ -13,6 +14,17 @@ const FONT_REF = /fonts\/[\w.-]+\.(?:woff2?|ttf|otf)/g;
 const SOURCE_EXT = /\.(?:tsx?|jsx?|json)$/;
 const SKIP_DIRS = new Set(["node_modules", "assets", "audio"]);
 const REQUIRED = ["name", "owner", "area", "brand", "beats"];
+const ENGINE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine");
+const ENGINE_EXT = /\.(?:tsx?|jsx?|mjs)$/;
+// Seek purity (CMO-7537 A): a frame must depend on time and props only, so any frame can be drawn alone and in any order.
+const IMPURE = [
+  ["Math.random", /\bMath\.random\b/],
+  ["Date.now", /\bDate\.now\b/],
+  ["performance.now", /\bperformance\.now\b/],
+  ["setTimeout", /\bsetTimeout\b/],
+  ["requestAnimationFrame", /\brequestAnimationFrame\b/],
+  ["a CSS transition", /\btransition(?:-[a-z-]+|Property|Duration|Delay|TimingFunction)?\s*:/],
+];
 
 export const MANUAL_REVIEW = [
   "Partner and government logos only on the closing wall, last",
@@ -78,6 +90,32 @@ function checkCopy(dir) {
   };
 }
 
+const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+
+/** Engine files and the scene's kinds.tsx must not use the wall clock, randomness or a CSS transition. Comments and *.test.* files are not scanned. */
+function checkPurity(dir, engineDir) {
+  const files = [];
+  if (existsSync(engineDir)) for (const f of readdirSync(engineDir)) if (ENGINE_EXT.test(f) && !/\.test\./.test(f)) files.push([`engine/${f}`, join(engineDir, f)]);
+  if (existsSync(join(dir, "kinds.tsx"))) files.push(["kinds.tsx", join(dir, "kinds.tsx")]);
+  return files.flatMap(([label, path]) => {
+    const text = stripComments(readFileSync(path, "utf8"));
+    return IMPURE.filter(([, re]) => re.test(text)).map(([name]) => `${label} uses ${name}`);
+  });
+}
+
+/** A scene folder holds scene.json, assets and kinds.tsx only: a component in parts/ belongs in the engine so the next video can use it (CMO-7537). */
+function checkParts(dir, engineDir) {
+  const parts = join(dir, "parts");
+  if (!existsSync(parts)) return [];
+  return readdirSync(parts, { recursive: true }).filter((f) => /\.tsx$/.test(f))
+    .map((f) => `parts/${f} is a component: move it to ${join(engineDir, basename(f))} with a node:test case, then import it in kinds.tsx as "@video/engine/${basename(f, ".tsx")}"`);
+}
+
+/** With "plan": true every beat must say why it is there (CMO-7537 B). enter and exit are optional notes. */
+function checkPlan(scene) {
+  return (scene.beats ?? []).filter((b) => typeof b.why !== "string" || b.why.trim() === "").map((b) => `beat ${b.n}: why is empty`);
+}
+
 /** Read-only: the nearest existing ancestor of outDir (outDir itself when present) must be writable. Creates nothing, so `bin/video check` writes nothing. */
 function checkWritable(outDir) {
   let at = outDir;
@@ -113,11 +151,12 @@ function checkVariants(scene) {
 }
 
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */
-export function runChecklist({ dir, brandDirs, outDir }) {
+export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR }) {
   const { scene, problems: sceneProblems } = checkScene(dir);
   const copy = existsSync(dir) ? checkCopy(dir) : { dashes: [], banned: [] };
   const slot = scene?.brandSlot === undefined ? [] : [result("brandSlot", "brand slot valid", validateBrandSlotAssets(dir, scene.brandSlot))]; // only when the scene asks for one
   const captions = scene?.captions ? [result("captions", "captions have narration to time them", checkCaptions(scene))] : []; // only when the scene turns captions on
+  const plan = scene?.plan === true ? [result("plan", "every beat says why it is there (plan)", checkPlan(scene))] : []; // only when the scene opts in (CMO-7537)
   const brief = scene?.brief === true ? [result("brief", "brief.md and style-guide.md filled, every on-screen asset listed", briefProblems(dir, scene))] : []; // only when the scene opts in (CMO-7576)
   return [
     result("scene", "scene.json valid", sceneProblems),
@@ -125,6 +164,9 @@ export function runChecklist({ dir, brandDirs, outDir }) {
     result("fonts", "brand and fonts resolve", scene ? checkFonts(dir, scene, brandDirs) : ["no scene to check"]),
     result("dashes", "no em or en dash in on-screen copy", copy.dashes),
     result("banned", "banned figure pair absent", copy.banned),
+    result("purity", "engine and kinds.tsx are seek-pure (no clock, random or CSS transition)", checkPurity(dir, engineDir)),
+    result("parts", "no component in the scene's parts/ folder (parts live in the engine)", checkParts(dir, engineDir)),
+    ...plan,
     ...slot,
     ...captions,
     ...brief,

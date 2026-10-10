@@ -4,7 +4,7 @@
 
 ## Video engine (Remotion, CMO-7526 round 1)
 
-One engine, one `node_modules`, one command. A scene folder lives in the consumer repo (for example `content-thinking/video/scenes/promo/<name>`); this repo holds only the generic kit: `bin/video`, `engine/`, `voice/`, `brands/` (fallback brands). The legacy Python audio scripts below are untouched.
+One engine, one `node_modules`, one command. A scene folder lives in the consumer repo (for example `content-thinking/video/scenes/promo/<name>`); this repo holds only the generic kit: `bin/video`, `engine/`, `voice/`, `brands/` (fallback brands). The legacy Python audio scripts moved to `legacy/` (section "Legacy audio workflow" below).
 
 ```bash
 npm ci                                              # first time only; Node 20+, ffmpeg, uv (voice only), Chrome
@@ -15,11 +15,19 @@ bin/video check <path-to-scene-folder>                                      # th
 Spec: `thinking/wiki/domains/dev/video-engine-separation-spec.md`. Exit 0 ok, 2 a fix you can make (message says which), 1 anything else.
 
 What one `render` does, in order:
-1. Pre-render checklist, PASS or FAIL per item, exit 2 on any FAIL and nothing renders: scene.json valid (fields, ordered beats), every beat kind in `kinds.tsx`, brand and font files resolve, no em or en dash in on-screen copy, banned-figure pair absent, output dir writable. The by-eye items from DEV-7364 (logos, titles, event facts) print as a reminder.
+1. Pre-render checklist, PASS or FAIL per item, exit 2 on any FAIL and nothing renders: scene.json valid (fields, ordered beats), every beat kind in `kinds.tsx`, brand and font files resolve, no em or en dash in on-screen copy, banned-figure pair absent, output dir writable, engine and `kinds.tsx` seek-pure (A below), no component in the scene's `parts/` folder (rule below), and, when the scene sets `"plan": true`, a non-empty `why` on every beat (B below). The by-eye items from DEV-7364 (logos, titles, event facts) print as a reminder.
 2. Narration step only if a beat has `narration` (local Kokoro through uv). No narration means no audio stream.
 3. Bundle and render with Remotion 4.0.529: 60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat.
 4. Post-render ffprobe line: size, fps, duration, audio, constant frame rate.
 5. Appends a row to `cost-log.csv` and updates `registry.csv`, both next to the scene's `scenes/` folder. `--tokens N` is required on a non-draft render (exit 2 without it; `--draft` is exempt and logs nothing). The cost-log date column is an ISO UTC stamp with a Z suffix, for example `2026-10-03T15:36Z`; the header and 8 columns are unchanged and older rows are left as they are. With `--out`, renders go to `DIR/<area>/<name>/` and write nothing to `cost-log.csv` or `registry.csv` (the ledgers are for real deliverable renders only).
+
+Where visual parts live (CMO-7537, EV 2026-10-03: "I want reusable code. That was the whole point."): every new visual part goes into `engine/` with a node:test case, or reuses an existing engine part. A scene folder holds only `scene.json`, `assets/` and a `kinds.tsx` that maps beat kinds to engine parts (`import { FillMeter } from "@video/engine/FillMeter"`). `bin/video check` FAILS a scene whose `parts/` folder holds a `.tsx` component and names the engine path to move it to. The seek test `engine/seekPurity.test.mjs` draws every engine part at t=7, t=2, t=7 and asserts the two t=7 outputs are equal; it also fails when an engine `.tsx` part has no case in it, so a new part gets one. Fonts: `engine/fonts.ts` loads Geist from the scene's `assets/fonts/` (Geist-Regular, -Medium, -SemiBold .woff2). Promoted so far: FillMeter, DataStory, UiDemo, OfferExplainer (with OfferShell, OfferSteps, offerMotion, offerTypes). The older client scenes (mashreq-demo1, riyadh-day3) are promoted on their next use.
+
+Seek purity (A): `bin/video check` FAILS on `Math.random`, `Date.now`, `performance.now`, `setTimeout`, `requestAnimationFrame` or a CSS `transition` in `engine/` (test files and comments excluded) and in the scene's `kinds.tsx`. A frame must depend on time and props only, so any frame can be drawn alone and in any order.
+
+Beat plan (B): optional `enter`, `exit` and `why` on each beat (`engine/beat.tsx`). Opt in per scene with `"plan": true`; an empty or missing `why` then FAILS the check and exits 2. Scenes without `plan` are not checked. Every render writes `<out>/<area>/<name>/shotlist.md`, one row per beat (time, kind, enter, exit, why).
+
+Review file (C): every render appends its frame-gate report and contact sheet path to `reviews/<scene>-<date>.md` next to `registry.csv` (with `--out DIR`: `DIR/reviews/`, so a scratch render leaves the consumer repo alone). The file starts from a template: top 3 defects (timestamp, evidence, local fix), everything else, then the judge verdict. Paste the Sonnet judge's verdict there as well as on the PAD ticket.
 
 Other commands: `stills`, `voice`, `studio`, `list --root DIR`, `archive NAME --root DIR` (same as the old kit; `bin/video --help`).
 
@@ -51,6 +59,8 @@ Licence: Remotion free tier applies only while clients receive rendered files an
 
 ## Legacy audio workflow
 
+The scripts below live in `legacy/` (`legacy/1_parse_audio.py`, `legacy/3_preprocess_transcripts.py`, `legacy/4_update_transcripts.py`, `legacy/5_generate_audio.py`, `legacy/ffmpeg-conversions.sh`, `legacy/dormant/`, `legacy/archive/`). Run them from the repo root, for example `python legacy/1_parse_audio.py`: their `parts/` paths are relative to the working directory, and `.env` is still found in the repo root.
+
 ### Original Inspiration  
 
 Near the end of July, we were tasked with generating a bunch of videos for the upcoming BI cohort from August to November. So I wanted to make the most of it to put together videos to ensure the content was relevant and engaging similar to the lectures. Over the course of the video generation, I attempted a few different approaches to generate videos quickly as it was an ambitious goal to generate a bunch of content in a short amount of time.  
@@ -71,7 +81,7 @@ To begin, I first downloaded the videos from vimeo and specifically used a libra
 
 #### A. Parse Audio 
 
-script: `1_parse_audio.py`  
+script: `legacy/1_parse_audio.py`  
 
 Once the downloads were complete, I noticed `openai` can only permit 4 minute increments of transcribing at a time. So, I first parsed the audio files from the `parts/` folder and then used a python script to partition the audio files into 4 minute increments and export them into a `parts/audio_partitions/` folder.  
 
@@ -79,7 +89,7 @@ Then I used a python script to transcribe the audio files from the `parts/audio_
 
 #### B. Transcribe
 
-script: `2_transcribe.py` (Dormant script, do not use)
+script: `legacy/dormant/2_transcribe.py` (Dormant script, do not use)
 
 Before having access to the transcripts generated by vimeo, I then used the OpenAI api to be able to transcribe the different chunks of audio and then save the transcripts into text files for each of the corresponding partitions of audio and then stored them in the `parts/transcripts/` folder.
 
@@ -92,7 +102,7 @@ Some early issues with this:
 
 #### C. Edit and Regenerate Audio (Test) 
 
-script: `3_generate_audio.py` (Dormant script, do not use)
+script: `legacy/dormant/3_generate_audio.py` (Dormant script, do not use)
 
 After having the text files, I then used the python script to edit the text files. This involved a few things:  
 - Removing the random characters that were in the middle of the text.
@@ -114,7 +124,7 @@ Now that I had the transcripts and ran into some challenges with editing and upd
 
 #### A. Transcribe (but also collate)
 
-script: `3_preprocess_transcripts.py`
+script: `legacy/3_preprocess_transcripts.py`
 
 I took the same text files and made the most of their existence by using a python script to collate them into excel to be a bit more manageable. So the script would process the subfolders and then create a csv file with the following columns:
 - Folder Name
@@ -145,7 +155,7 @@ I added a few columns to be able to update programmatically and see if there was
 
 #### C. Update Transcripts
 
-script: `4_update_transcripts.py`  
+script: `legacy/4_update_transcripts.py`  
 
 In between the manual steps of editing, I made a master excel that would record all of the new text where I set up an assistant to regenerate the transcript to be focused on the Module + Class and the Class Description to be the topics. I passed the original text and previous text also to the assistant as part of the user prompt and would update each transcript line by line.
 
@@ -153,7 +163,7 @@ The script would go class by class and ensure it only processed the class where 
 
 #### D. Regenerate Audio
 
-script: `5_generate_audio.py`
+script: `legacy/5_generate_audio.py`
 
 This script was then used to generate the audio for the classes using OpenAI and my updates to the final script.
 
