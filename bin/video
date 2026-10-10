@@ -16,6 +16,7 @@ import { wordsForScene } from "./lib/words.mjs";
 import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 import { resolveVariant, variantFileName, variantSizes } from "./lib/variants.mjs";
+import { parseRange, rangeFrames } from "./lib/range.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const STALE_DAYS = 60;
@@ -51,8 +52,11 @@ Flags:
   --force        voice: re-synthesise every beat
   --out DIR      render into DIR/<area>/<name>/ instead of <root>/out; a scratch render, so registry.csv and cost-log.csv are left alone
   --root DIR     consumer root for list, archive and name lookups (default: current directory)
+  --range S:E    render only: re-render seconds S to E (end exclusive) as PNG stills in <out>/<area>/<name>/range-S-E/, a scratch preview:
+                 no mp4, poster, beat stills, ledger rows, review entry or frame gate, and --tokens is not needed
 
 Examples:
+  bin/video render my-offer --root ~/repos/content-thinking/video --range 2:3 --out /tmp/preview
   bin/video render ~/repos/content-thinking/video/scenes/promo/my-offer --tokens 180000
   bin/video render my-offer --root ~/repos/content-thinking/video --draft
   bin/video stills riyadh-day3 --beats 1,2,3
@@ -70,8 +74,8 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) fail(`unexpected argument "${a}". Flags start with --; see: bin/video --help`);
     const key = a.slice(2);
     if (["draft", "force"].includes(key)) flags[key] = true;
-    else if (["fps", "blur", "beats", "tokens", "out", "root", "sheet", "max-hold"].includes(key)) flags[key] = rest[++i] ?? fail(`--${key} needs a value`);
-    else fail(`unknown flag --${key}. Known: --draft --fps --blur --beats --tokens --force --out --root --sheet --max-hold`);
+    else if (["fps", "blur", "beats", "tokens", "out", "root", "sheet", "max-hold", "range"].includes(key)) flags[key] = rest[++i] ?? fail(`--${key} needs a value`);
+    else fail(`unknown flag --${key}. Known: --draft --fps --blur --beats --tokens --force --out --root --sheet --max-hold --range`);
   }
   return { cmd, target, flags };
 }
@@ -241,6 +245,37 @@ async function render(dir, flags, paths, tokens) {
   if (failures.length) fail(`${failures.join("; ")}. The renders are kept in ${dest}; fix the scene and render again.`);
 }
 
+/** `render --range S:E` (CMO-7578): only the frames of a defect window, as PNG stills in <dest>/range-S-E/. A scratch preview: no mp4, poster, beat stills, ledger, review file or frame gate. */
+async function renderRange(dir, flags, paths) {
+  const t0 = Date.now();
+  gate(dir, paths);
+  if (hasNarration(JSON.parse(readFileSync(join(dir, "scene.json"), "utf8")))) voiceStep(dir, false);
+  const timed = loadScene(dir, paths.brandDirs);
+  const fps = flags.draft ? 30 : Number(flags.fps ?? 60);
+  const blur = flags.draft ? 1 : Number(flags.blur ?? 2);
+  if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
+  let range;
+  try { range = parseRange(flags.range, timed.scene.beats.at(-1).end); } catch (e) { fail(e.message); }
+  const { outputFrames, frameRange } = rangeFrames(range, fps, blur);
+  const out = join(paths.out, timed.scene.area, timed.scene.name, `range-${range.start}-${range.end}`);
+  const sub = join(out, "raw");
+  mkdirSync(sub, { recursive: true });
+  const loaded = timed.scene.captions ? { ...timed, scene: { ...timed.scene, words: captionWords(dir, timed.scene, out) } } : timed;
+  const serveUrl = await bundleOnce(dir, loaded.scene.name);
+  const b = await selectFor(serveUrl, loaded, fps * blur, { fps, blur });
+  const { renderFrames } = await import("@remotion/renderer");
+  log(`scratch preview of ${range.start}s to ${range.end}s (${outputFrames} frames at ${fps}fps): no mp4, ledger, review file or frame gate`);
+  await renderFrames({ ...b, imageFormat: "png", frameRange, outputDir: sub, muted: true, concurrency: Math.max(1, Math.floor(cpus().length / 2)), timeoutInMilliseconds: 120000, onStart: () => {}, onFrameUpdate: () => {} });
+  const vf = blur > 1 ? `tmix=frames=${blur},fps=${fps}` : `fps=${fps}`;
+  const list = join(sub, "frames.txt");
+  const names = readdirSync(sub).filter((f) => /^element-\d+\.png$/.test(f)).sort((x, y) => parseInt(x.slice(8)) - parseInt(y.slice(8)));
+  writeFileSync(list, names.map((f) => `file '${join(sub, f)}'\nduration ${1 / (fps * blur)}`).join("\n"));
+  run("ffmpeg", ["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list, "-vf", vf, "-frames:v", String(outputFrames), join(out, "frame-%04d.png")]);
+  const written = readdirSync(out).filter((f) => /^frame-\d+\.png$/.test(f)).length;
+  log(`done in ${((Date.now() - t0) / 60000).toFixed(1)} min`);
+  console.log(`${out} (${written} frames)`);
+}
+
 /** Render one composition (the master or a variant) to <dest>/<stem>.mp4 with the shared narration, plus its poster; the master also gets the 30fps LinkedIn cut. Returns the mp4 path. */
 async function renderCut({ label, loaded, stem, poster }, { serveUrl, dest, fps, blur, audio, draft }) {
   const b = await selectFor(serveUrl, loaded, fps * blur, { fps, blur });
@@ -389,6 +424,7 @@ async function main() {
   const paths = projectPaths(dir, flags);
   if (cmd === "check") return gate(dir, paths, true);
   if (cmd === "render") {
+    if (flags.range) return oneAtATime(() => renderRange(dir, flags, paths));
     let tokens;
     try { tokens = requireTokens(flags); } catch (e) { fail(e.message); }
     return oneAtATime(() => render(dir, flags, paths, tokens));
