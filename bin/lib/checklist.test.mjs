@@ -108,3 +108,21 @@ test("a bad variant fails only its own item", () => {
 test("no variant items when the scene declares none", () => {
   assert.equal(runChecklist(fixture()).some((i) => i.id.startsWith("variant")), false);
 });
+
+test("no brief item unless the scene sets brief: true (CMO-7576)", () => {
+  assert.equal(runChecklist(fixture()).some((i) => i.id === "brief"), false);
+});
+
+test("brief: true without brief.md fails the brief item only", () => {
+  assert.deepEqual(failed(runChecklist(fixture({ scene: { ...SCENE, brief: true } }))), ["brief"]);
+});
+
+test("brief: true with a full brief.md and style-guide.md passes", () => {
+  const extra = {
+    "brief.md": "One sentence: x\nAudience: x\nAssets: none\nBanned defaults: x\nDeliverables: x\n",
+    "style-guide.md": "Palette: x\nType: x\nPacing: x\nMotion: x\nDo not copy: x\n",
+  };
+  const items = runChecklist(fixture({ scene: { ...SCENE, brief: true }, extra }));
+  assert.deepEqual(failed(items), []);
+  assert.ok(items.some((i) => i.id === "brief" && i.pass));
+});

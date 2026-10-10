@@ -4,6 +4,7 @@ import { accessSync, constants, existsSync, readdirSync, readFileSync } from "no
 import { basename, dirname, join } from "node:path";
 import { resolveBrandSlot } from "../../engine/brandSlotMath.js";
 import { variantProblems } from "./variants.mjs";
+import { briefProblems } from "./brief.mjs";
 
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 const BANNED_A = /(?<!\d)(14|4) hours/i; // "14 hours" or "4 hours" ...
@@ -117,6 +118,7 @@ export function runChecklist({ dir, brandDirs, outDir }) {
   const copy = existsSync(dir) ? checkCopy(dir) : { dashes: [], banned: [] };
   const slot = scene?.brandSlot === undefined ? [] : [result("brandSlot", "brand slot valid", validateBrandSlotAssets(dir, scene.brandSlot))]; // only when the scene asks for one
   const captions = scene?.captions ? [result("captions", "captions have narration to time them", checkCaptions(scene))] : []; // only when the scene turns captions on
+  const brief = scene?.brief === true ? [result("brief", "brief.md and style-guide.md filled, every on-screen asset listed", briefProblems(dir, scene))] : []; // only when the scene opts in (CMO-7576)
   return [
     result("scene", "scene.json valid", sceneProblems),
     result("kinds", "every beat kind present in kinds.tsx", scene ? checkKinds(dir, scene) : ["no scene to check"]),
@@ -125,6 +127,7 @@ export function runChecklist({ dir, brandDirs, outDir }) {
     result("banned", "banned figure pair absent", copy.banned),
     ...slot,
     ...captions,
+    ...brief,
     ...checkVariants(scene),
     result("output", "output dir writable", checkWritable(outDir)),
   ];
