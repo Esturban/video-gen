@@ -57,7 +57,20 @@ const OFFER_BEAT = {
   cta: "Book the free Live Audit", endNote: "Free, 20 minutes.", count: { note: ["2", "6"], endNote: ["20"], stagger: 0.1 },
   tl: { pillIn: 0.2, toCard: 1.5, cursorIn: 2.9, tab2: 4.2, tab3: 6.8, cta: 8.3, cursorOut: 10.2 },
 };
-const BEATS = { FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT };
+const GROW_BEAT = {
+  ...PLAIN_BEAT, title: "Title", sub: "Sub", source: "Source: Test", stat: { text: "100x", note: "note", count: { to: 100, start: 0.2, end: 3 } }, yLabel: "FLOP", yDomain: [21, 28], ticks: [22, 25],
+  series: [{ label: "2018", value: 8.7e21, tier: "filled" }, { label: "2019", value: 1.1e23, tier: "ring" }, { label: "2020", value: 3.1e23, tier: null }],
+  reveal: { from: -1, to: 2 }, draw: [0.1, 0.8], callouts: [{ idx: 0, place: "below-right", title: "A" }, { idx: 1, place: "above-left", title: "B", in: [0.2, 0.4] }],
+  trend: { label: "4x", draw: [0.2, 0.7] }, legend: { filled: "f", ring: "r", in: [0.3, 0.5] },
+};
+const SKETCH_BEAT = {
+  ...PLAIN_BEAT, shapes: [
+    { t: "person", x: 300, y: 700, h: 300, pose: "busy", at: [0.5, 3] }, { t: "arrow", from: [400, 500], to: [700, 500], at: [3, 4] },
+    { t: "rect", x: 800, y: 300, w: 400, h: 200, fill: "accentSoft", at: [4, 6], ink: "accent" }, { t: "text", x: 960, y: 200, text: "Hello", size: 80, anchor: "middle", at: [5, 8] },
+    { t: "count", x: 960, y: 900, to: 48000, size: 120, anchor: "middle", at: [6, 9] },
+  ],
+};
+const BEATS = { Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -67,10 +80,12 @@ const CASES = {
   chartStory: [`<ChartStory config={${JSON.stringify(STORY)}} colors={${JSON.stringify(COLORS)}} fontFamily="sans-serif" />`],
   captions: ['<Captions words={[{ text: "one", start: 1, end: 1.5 }, { text: "two", start: 1.5, end: 2 }, { text: "three", start: 6.5, end: 7.5 }]} />'],
   brandSlot: ['<BrandSlot spec={{ text: "Esteban V.", corner: "bottom-right" }} />'],
+  Sketch: ["<Sketch />"],
   FillMeter: ["<FillMeter />"],
   DataStory: ["<DataStory />"],
   UiDemo: ["<UiDemo />"],
   OfferExplainer: ["<OfferExplainer />"],
+  GrowLine: ["<GrowLine />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
