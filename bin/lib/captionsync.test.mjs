@@ -74,3 +74,13 @@ test("nearestSwitch picks the change closest to the expected frame, not a neighb
   assert.equal(nearestSwitch(series, 568), 568);
   assert.equal(nearestSwitch([{ frame: 1, x: 5 }, { frame: 2, x: 5 }], 2), null);
 });
+
+test("chooseCheckWords takes the words a scene names (first match, punctuation and case ignored), else spreads three evenly", async () => {
+  const { chooseCheckWords } = await import("./captionsync.mjs");
+  const words = ["Every", "word", "was", "timed", "plus", "a", "short", "on", "this", "laptop,"].map((text, i) => ({ text, start: i, end: i + 0.5 }));
+  assert.deepEqual(chooseCheckWords(words, ["timed", "Short", "this"]).map((w) => w.text), ["timed", "short", "this"]);
+  assert.deepEqual(chooseCheckWords(words, ["laptop"]).map((w) => w.text), ["laptop,"]);
+  assert.throws(() => chooseCheckWords(words, ["absent"]), /"absent"/);
+  assert.equal(chooseCheckWords(words, undefined).length, 3);
+  assert.deepEqual(chooseCheckWords(words, undefined, 0, (w) => w.text !== "word").map((w) => w.text).includes("word"), false);
+});

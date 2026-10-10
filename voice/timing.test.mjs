@@ -61,3 +61,50 @@ test("beats before any narration keep their hand times untouched", () => {
   assert.equal(timing.find((t) => t.n === 0), undefined);
   assert.equal(timing[0].start, 2);
 });
+
+/** A mono 24 kHz wav: 0.5s tone, 0.4s silence, 0.5s tone, so the voice comes back at exactly 0.9s. */
+function pausedWav() {
+  const wav = join(mkdtempSync(join(tmpdir(), "timing-")), "paused.wav");
+  execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=24000:duration=0.5", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono:d=0.4",
+    "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=24000:duration=0.5", "-filter_complex", "[0][1][2]concat=n=3:v=0:a=1", "-c:a", "pcm_s16le", wav]);
+  return wav;
+}
+
+test("timed_words() moves a TTS word that starts inside a pause of the wav to where the voice comes back", () => {
+  const words = [{ text: "one", start: 0.1, end: 0.62 }, { text: "two", start: 0.7, end: 1.3 }];
+  const out = py("print(json.dumps(narrate.timed_words(json.loads(sys.argv[1]), narrate.Path(sys.argv[2]))))", JSON.stringify(words), pausedWav());
+  assert.equal(out[0].start, 0.1);
+  assert.ok(Math.abs(out[0].end - 0.5) <= 0.005, `one ends ${out[0].end}`);
+  assert.ok(Math.abs(out[1].start - 0.9) <= 0.005, `two starts ${out[1].start}`);
+});
+
+test("needs_voice() re-synthesises when a timing engine has no word file of its own, and not when key and source match", () => {
+  const dir = mkdtempSync(join(tmpdir(), "timing-"));
+  const res = py(`from pathlib import Path
+d = Path(sys.argv[1]); wav, key, words = d/'b.wav', d/'b.key', d/'b.words.json'
+wav.write_bytes(b'x'); key.write_text('k')
+r = {}
+words.write_text(json.dumps({'key': 'k', 'words': []}))
+r['whisper_cache_timed_engine'] = narrate.needs_voice(False, wav, key, words, 'k', 'kokoro')
+r['whisper_cache_plain_engine'] = narrate.needs_voice(False, wav, key, words, 'k', None)
+words.write_text(json.dumps({'key': 'k', 'source': 'kokoro', 'words': []}))
+r['own_cache'] = narrate.needs_voice(False, wav, key, words, 'k', 'kokoro')
+r['forced'] = narrate.needs_voice(True, wav, key, words, 'k', 'kokoro')
+r['key_changed'] = narrate.needs_voice(False, wav, key, words, 'k2', 'kokoro')
+print(json.dumps(r))`, dir);
+  assert.deepEqual(res, { whisper_cache_timed_engine: true, whisper_cache_plain_engine: false, own_cache: false, forced: true, key_changed: true });
+});
+
+test("timed_words() moves a weak-onset word after a hissing word to where the hiss ends, and ends the word before there", () => {
+  const wav = join(mkdtempSync(join(tmpdir(), "timing-")), "hiss.wav");
+  execFileSync("python3", ["-c", `import numpy as np, wave
+SR=24000; t=lambda s: np.arange(int(s*SR))/SR
+tone=lambda s: 0.3*(np.sin(2*np.pi*150*t(s))+0.5*np.sin(2*np.pi*300*t(s)))
+rng=np.random.default_rng(3); n=rng.standard_normal(int(0.1*SR)); hiss=0.2*np.diff(n, prepend=0)
+x=np.concatenate([tone(0.4), hiss, tone(0.3)])
+w=wave.open(${JSON.stringify(wav)},'wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR); w.writeframes((x*32767).astype('<i2').tobytes()); w.close()`]);
+  const words = [{ text: "as", start: 0.2, end: 0.46 }, { text: "its", start: 0.46, end: 0.7 }];
+  const out = py("print(json.dumps(narrate.timed_words(json.loads(sys.argv[1]), narrate.Path(sys.argv[2]))))", JSON.stringify(words), wav);
+  assert.ok(Math.abs(out[1].start - 0.5) <= 0.01, `its starts ${out[1].start}`);
+  assert.equal(out[0].end, out[1].start);
+});

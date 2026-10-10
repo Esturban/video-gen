@@ -9,6 +9,11 @@ The voice engine is pluggable: scene.json "voice" (or the brand's "voice") names
 voice/engines/. Each engine is one file exposing synth(text, out_wav, voice, lang). Kokoro-82M
 is the default. To add EV's own voice (CMO-7305), drop in voice/engines/<name>.py and set
 "voice": {"engine": "<name>", ...} in the scene. Nothing else changes.
+
+Word times (captions): an engine that knows when it spoke each word sets TIMED = True and returns [{text, start, end}] from
+synth(). Those words, with any word that starts inside a pause moved to where the voice comes back (measured from the wav),
+are written to <scene>/audio/beat<n>.words.json with "source": <engine>, and bin/video uses them instead of whisper-cli.
+An engine that returns nothing keeps the whisper-cli path.
 """
 # REUSE_CHECKED: 4_agents/sh/thinking/wiki/domains/clients/atomcamp/mashreq-agile-coaches/source/motion/video/tts.py   same per-beat synth plus retime-from-audio logic, generalised; edge-tts replaced by a local engine plug-in
 import hashlib
@@ -17,6 +22,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+import onsets
 
 KIT = Path(__file__).resolve().parent.parent
 LEAD = 0.4  # silence before the voice in each beat, seconds
@@ -88,6 +95,39 @@ def retime(beats: list, durations: dict) -> list:
     return timing
 
 
+def timed_words(words: list, wav: Path) -> list:
+    """The engine's word times moved onto the wav's own landmarks: a word that starts inside a pause starts where the voice comes
+    back; then each start goes to its first sound's onset (closure, hiss, end of the word before's hiss or murmur) when one is
+    within reach, and the word before ends there. A word with no landmark keeps the engine's time."""
+    sr = 24000
+    x = onsets.read_mono(wav, sr)
+    out = onsets.snap_to_pauses(words, onsets.pauses(x, sr))
+    for i, w in enumerate(out):
+        prev = onsets.last_sound(out[i - 1]["text"]) if i else None
+        at = onsets.onset(x, sr, w["start"], onsets.first_sound(w["text"]), prev)
+        floor = out[i - 1]["start"] + 0.03 if i else 0.0
+        if at["rule"] == "aligner" or not floor <= at["start"] < w["end"]:
+            continue
+        out[i] = {**w, "start": round(at["start"], 3)}
+        if i and (out[i - 1]["end"] > out[i]["start"] or at["rule"].endswith("end")):
+            out[i - 1] = {**out[i - 1], "end": out[i]["start"]}
+    return out
+
+
+def needs_voice(force: bool, wav: Path, key_file: Path, words_file: Path, key: str, source) -> bool:
+    """Synthesise again when forced, when the wav or its key is missing or stale, or when a timing engine (`source` set) has
+    no word file of its own beside the wav (an older whisper-cli cache, say)."""
+    if force or not wav.exists() or not key_file.exists() or key_file.read_text() != key:
+        return True
+    if source is None:
+        return False
+    try:
+        cached = json.loads(words_file.read_text())
+    except (OSError, ValueError):
+        return True
+    return cached.get("key") != key or cached.get("source") != source
+
+
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if not args:
@@ -105,11 +145,15 @@ def main() -> None:
         if not b.get("narration"):
             continue
         wav, key_file = audio / f"beat{b['n']}.wav", audio / f"beat{b['n']}.key"
+        words_file = audio / f"beat{b['n']}.words.json"
         key = hashlib.sha1(json.dumps([b["narration"], cfg], sort_keys=True).encode()).hexdigest()
-        if force or not wav.exists() or not key_file.exists() or key_file.read_text() != key:
+        source = cfg["engine"] if getattr(engine, "TIMED", False) else None
+        if needs_voice(force, wav, key_file, words_file, key, source):
             print(f"voice: beat {b['n']} ({cfg['engine']}, {cfg['voice']})", file=sys.stderr)
-            engine.synth(b["narration"], wav, cfg["voice"], cfg["lang"])
+            words = engine.synth(b["narration"], wav, cfg["voice"], cfg["lang"])
             key_file.write_text(key)
+            if source and words:
+                words_file.write_text(json.dumps({"key": key, "source": source, "words": timed_words(words, wav)}, indent=1) + "\n")
         durations[b["n"]] = duration(wav)
     timing = retime(beats, durations)
     (scene_dir / "timing.json").write_text(json.dumps(timing, indent=1) + "\n")

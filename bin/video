@@ -10,6 +10,7 @@ import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mj
 import { appendRenderEntry } from "./lib/review.mjs";
 import { shotlist } from "./lib/shotlist.mjs";
 import { checkFrames, DEAD_MAX_HOLD_S, formatFrameReport } from "./lib/checkframes.mjs";
+import { checkAudioSync, formatAudioReport } from "./lib/audiosync.mjs";
 import { checkCaptionSync, formatSyncReport } from "./lib/captionsync.mjs";
 import { wordsForScene } from "./lib/words.mjs";
 import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } from "./lib/ledger.mjs";
@@ -234,7 +235,7 @@ async function render(dir, flags, paths, tokens) {
     const sync = cut.loaded.scene.captions ? captionSync(files[i], cut.loaded, fps) : { pass: true };
     return [
       ...(frames.pass ? [] : [`${cut.label}: frame check FAILED on ${frames.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}`]),
-      ...(sync.pass ? [] : [`${cut.label}: caption sync FAILED, a checked word's highlight is more than 2 frames off its time`]),
+      ...(sync.pass ? [] : [`${cut.label}: caption sync FAILED, a checked word's highlight is more than 2 frames off its time or its voice`]),
     ];
   });
   if (failures.length) fail(`${failures.join("; ")}. The renders are kept in ${dest}; fix the scene and render again.`);
@@ -276,7 +277,11 @@ function captionSync(master, { scene, brand }, fps) {
   const [width, height] = scene.size ?? [1920, 1080];
   const result = checkCaptionSync(master, { words: scene.words, brand, width, height, fps, options: typeof scene.captions === "object" ? scene.captions : {} });
   log(formatSyncReport(result, fps));
-  return result;
+  // The check above holds the highlight to words.json; this one holds it to the voice in the render's own audio track.
+  let audio;
+  try { audio = checkAudioSync(master, { words: scene.words, brand, width, height, fps, options: typeof scene.captions === "object" ? scene.captions : {} }); } catch (e) { fail(`caption sync vs audio: ${e.message}`); }
+  log(formatAudioReport(audio, fps));
+  return { pass: result.pass && audio.pass };
 }
 
 /** Frame gate on a finished mp4: prints the report (stderr during render, stdout standalone) and returns it. The caller decides what a FAIL does. */

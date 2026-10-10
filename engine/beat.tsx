@@ -34,7 +34,7 @@ export type Scene = {
   render?: { fps: number; blur: number }; // set by bin/video: delivered fps and motion-blur subframes per output frame
   brandSlot?: { text?: string; corner?: string; logo?: string | null }; // signature or logo overlay in one corner; absent means nothing is rendered
   plan?: boolean; // opt in to the beat plan check: every beat needs a non-empty why (CMO-7537)
-  captions?: boolean | { maxWords?: number; maxGap?: number; linger?: number }; // word-timed captions from the narration audio (CMO-7584); absent or false means none
+  captions?: boolean | { maxWords?: number; maxGap?: number; linger?: number; check?: string[] }; // word-timed captions from the narration audio (CMO-7584); absent or false means none; check names the words the sync checks read
   words?: { text: string; start: number; end: number; beat?: number }[]; // set by bin/video from words.json when captions are on
   variants?: Record<string, { size: [number, number]; layoutOverrides?: Record<string, Partial<Beat>> }>; // extra compositions from the same beats, e.g. "9x16" (CMO-7577; bin/lib/variants.mjs)
   variant?: string; // set by bin/video on the scene a variant renders; absent on the master

@@ -1,6 +1,8 @@
 // Word timings from the narration audio (CMO-7584), all local: whisper-cli (whisper.cpp, Homebrew) with the large-v3-turbo model already on this Mac.
 // Each narrated beat's wav is transcribed once with one word per segment, cached next to the wav under the beat's narration key,
 // then placed on the scene clock (beat start + voiceAt). bin/video render writes the result to out/<area>/<name>/words.json.
+// A TTS engine that knows its own word times (Kokoro, TIMED in voice/engines/) writes that cache itself from voice/narrate.py,
+// moved onto landmarks in the wav; whisper-cli runs only for engines without word times. whisper word starts run early.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";

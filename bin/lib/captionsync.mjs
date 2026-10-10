@@ -53,6 +53,21 @@ export function pickCheckWords(words, count = 3, minLength = 0) {
   return Array.from({ length: count }, (_, i) => pool[Math.round(((i + 0.5) * pool.length) / count - 0.5)]);
 }
 
+const bare = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+
+/**
+ * The words to check: the ones a scene names in captions.check (first match of each, case and punctuation ignored), else
+ * `count` spread evenly. `usable` drops words that cannot be checked (too short on screen, or no audio onset).
+ */
+export function chooseCheckWords(words, names, minLength = 0, usable = () => true, count = 3) {
+  if (!Array.isArray(names) || !names.length) return pickCheckWords(words.filter(usable), count, minLength);
+  return names.map((name) => {
+    const w = words.find((x) => bare(x.text) === bare(name));
+    if (!w) throw new Error(`captions.check names "${name}", which is not a word in words.json`);
+    return w;
+  });
+}
+
 /** When the highlight should leave a word: the next word's start on the same page, or the page's end for its last word. */
 export function leaveTime(pages, word) {
   const page = pages.find((p) => p.words.includes(word));
@@ -68,7 +83,7 @@ export const wordVerdict = (enter, leave) => ({ enter, leave, pass: syncVerdict(
 export const seekTime = (first, fps) => Math.max(0, (first - 0.5) / fps).toFixed(6);
 
 /** Read frames [first, last] of the caption band of `mp4` as rgb24 and return [{ frame, x }]. */
-function bandCentroids(mp4, { width, height, fps }, style, first, last) {
+export function bandCentroids(mp4, { width, height, fps }, style, first, last) {
   const bandH = Math.round(height * 0.28);
   const scale = SAMPLE_WIDTH / width;
   const h = Math.max(1, Math.round(bandH * scale));
@@ -85,7 +100,7 @@ export function checkCaptionSync(mp4, { words, brand, width, height, fps, option
   const pages = captionPages(words, options);
   const window = (frame) => nearestSwitch(bandCentroids(mp4, { width, height, fps }, style, Math.max(0, frame - SEARCH_FRAMES), frame + SEARCH_FRAMES), frame);
   const minLength = (2 * SEARCH_FRAMES + 1) / fps;
-  const rows = pickCheckWords(words, 3, minLength).map((w) => {
+  const rows = chooseCheckWords(words, options.check, minLength).map((w) => {
     const enterAt = wordFrame(w.start, fps);
     const leaveAt = wordFrame(leaveTime(pages, w), fps);
     return { text: w.text, start: w.start, ...wordVerdict({ expected: enterAt, seen: window(enterAt) }, { expected: leaveAt, seen: window(leaveAt) }) };
