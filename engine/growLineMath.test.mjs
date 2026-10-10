@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { arrivalAlpha, growthPerStep, layoutFor, logY, pathOf, pointX, roundedCount, runningMax, sci, smooth, tipIndex, visiblePoints } from "./growLineMath.js";
+import { statEnters, statOpacity, arrivalAlpha, growthPerStep, layoutFor, logY, pathOf, pointX, roundedCount, runningMax, sci, smooth, tipIndex, visiblePoints } from "./growLineMath.js";
 
 test("smooth holds 0 before a, 1 after b, and is monotonic between", () => {
   assert.equal(smooth(0, 1, 2), 0);
@@ -88,4 +88,29 @@ test("layoutFor keeps the chart inside the canvas for wide and square", () => {
   assert.equal(layoutFor(1920, 1080).wide, true);
   assert.equal(layoutFor(1440, 1440).wide, false);
   assert.throws(() => layoutFor(0, 10));
+});
+
+test("a stat identical in back-to-back beats carries over: no entry, full opacity from frame 0", () => {
+  const same = { text: "114,000x", note: "2018 to Sep 2026" };
+  const beats = [{ stat: { ...same, count: { to: 114000, start: 0.3, end: 9.2 } } }, { stat: { ...same } }, { stat: { ...same } }];
+  assert.equal(statEnters(beats, 0), true);
+  assert.equal(statEnters(beats, 1), false);
+  assert.equal(statEnters(beats, 2), false);
+  for (const n of [1, 2]) for (const t of [0, 0.05, 0.3, 0.6, 5]) assert.equal(statOpacity(t, statEnters(beats, n)), 1);
+});
+
+test("a stat enters when the previous beat has none or a different text or note", () => {
+  const a = { text: "1x", note: "n" };
+  assert.equal(statEnters([{}, { stat: a }], 1), true);
+  assert.equal(statEnters([{ stat: a }, { stat: { ...a, text: "2x" } }], 1), true);
+  assert.equal(statEnters([{ stat: a }, { stat: { ...a, note: "m" } }], 1), true);
+  assert.equal(statEnters([{ stat: a }, {}], 1), false);
+});
+
+test("an entering stat fades in from 0 to 1 and holds", () => {
+  assert.equal(statOpacity(0, true), 0);
+  assert.equal(statOpacity(0.6, true), 1);
+  assert.equal(statOpacity(3, true), 1);
+  const mid = statOpacity(0.3, true);
+  assert.ok(mid > 0 && mid < 1);
 });

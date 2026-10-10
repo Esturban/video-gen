@@ -5,10 +5,10 @@
 // The line, trend and tip are drawn on the raw clock (they keep their blur); text, markers and callouts on the crisp clock.
 import React from "react";
 import { useVideoConfig } from "remotion";
-import { useBeat, useBrand, useCrispSeconds, useSeconds } from "./beat";
+import { useBeat, useBrand, useCrispSeconds, useScene, useSeconds } from "./beat";
 import { countValue } from "./countValue.js";
 import { FONT } from "./fonts";
-import { arrivalAlpha, clamp01, layoutFor, logY, pathOf, pointX, sci, smooth, tipIndex, visiblePoints } from "./growLineMath.js";
+import { arrivalAlpha, clamp01, layoutFor, logY, pathOf, pointX, sci, smooth, statEnters, statOpacity, tipIndex, visiblePoints } from "./growLineMath.js";
 
 type Place = "above-left" | "above-right" | "below-right" | "left";
 type Point = { label: string; value: number; tier: "filled" | "ring" | null };
@@ -43,6 +43,7 @@ const Sci: React.FC<{ v: number; size: number }> = ({ v, size }) => {
 export const GrowLine: React.FC = () => {
   const { width: W, height: H } = useVideoConfig();
   const brand = useBrand();
+  const scene = useScene();
   const beat = useBeat() as unknown as GrowBeat & { start: number; end: number; pace?: number };
   const raw = useSeconds();
   const crisp = useCrispSeconds();
@@ -93,7 +94,7 @@ export const GrowLine: React.FC = () => {
       <text x={L.title.x} y={L.title.y} fontSize={TITLE_PX * k} fontWeight={600} fill={c.ink} {...font}>{beat.title}</text>
       <text x={L.sub.x} y={L.sub.y} fontSize={SUB_PX * k} fontWeight={500} fill={c.inkSoft} {...font}>{beat.sub}</text>
       {beat.stat && (
-        <g opacity={smooth(crisp, 0.05, 0.6)}>
+        <g opacity={statOpacity(crisp, statEnters(scene.beats as unknown as { stat?: { text: string; note: string; count?: unknown } }[], beat.n))}>
           <text x={L.stat.x} y={L.stat.y} textAnchor={L.stat.anchor as "start" | "end"} fontSize={STAT_PX * k} fontWeight={600} fill={c.accent} {...font}>{beat.stat.count ? `${countValue(crisp, { from: 0, ...beat.stat.count }).toLocaleString("en-US")}${beat.stat.text.slice(-1)}` : beat.stat.text}</text>
           <text x={L.stat.x} y={L.stat.y + 34 * k} textAnchor={L.stat.anchor as "start" | "end"} fontSize={SUB_PX * k} fontWeight={500} fill={c.inkSoft} {...font}>{beat.stat.note}</text>
         </g>

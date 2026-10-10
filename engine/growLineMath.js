@@ -98,3 +98,20 @@ export function runningMax(values) {
   let best = -Infinity;
   return values.map((v) => (best = Math.max(best, v)));
 }
+
+/**
+ * Whether the headline stat of beat n enters (fades in) or is already on screen from the beat before.
+ * It carries over, with no exit and no entry, when the previous beat declares the same text and note and does not count; a counting stat always enters (its count is expected to have finished before the next beat starts).
+ * @param {{ stat?: { text: string, note: string, count?: unknown } }[]} beats
+ * @param {number} n index into beats
+ */
+export function statEnters(beats, n) {
+  const cur = beats[n]?.stat;
+  if (!cur) return false;
+  const prev = n > 0 ? beats[n - 1]?.stat : undefined;
+  if (cur.count || !prev) return true;
+  return prev.text !== cur.text || prev.note !== cur.note;
+}
+
+/** Opacity of the stat t seconds into its beat: a fade over [a, b] when it enters, otherwise fully on from the first frame. */
+export const statOpacity = (t, enters, a = 0.05, b = 0.6) => (enters ? smooth(t, a, b) : 1);
