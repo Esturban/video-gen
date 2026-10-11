@@ -259,6 +259,19 @@ test("9:16 second act stacks: the five cards sit in one column, the two tiles on
   assert.ok(t0.y0 > Math.max(...s.cards.map((c) => bounds(c.poly).y1)), "the tiles sit under the cards");
 });
 
+test("9:16 stacked share bar spans its whole tile, and no two month labels under it overlap", () => {
+  const s = tallStory.at(END);
+  const tile = bounds(s.bento.tiles[0].poly);
+  const segs = s.bento.stack.segments;
+  const span = segs.at(-1).label.x - segs[0].label.x; // label centres, first to last
+  const barX1 = Math.max(...segs.map((sg) => bounds(sg.poly).x1));
+  assert.ok(barX1 > tile.x1 - 60, `the bar ends at ${barX1.toFixed(0)}, the tile at ${tile.x1.toFixed(0)}`);
+  const LABEL_W_EM = 1.8; // "May" in Geist is about 1.7em wide
+  const w = LABEL_W_EM * tallStory.layout.text.tileLabel;
+  segs.slice(1).forEach((sg, j) => assert.ok(sg.label.x - segs[j].label.x >= w, `${segs[j].label.text} and ${sg.label.text} labels overlap`));
+  assert.ok(span > 0);
+});
+
 test("9:16 second act fills the tall frame: cards span at least 60% of the height at 21s, cards and tiles at least 80% at the end", () => {
   const cardsOnly = heightShare(tallStory, 21, (s) => s.cards.map((c) => c.poly));
   const all = heightShare(tallStory, END, (s) => [...s.cards.map((c) => c.poly), ...s.bento.tiles.map((x) => x.poly)]);

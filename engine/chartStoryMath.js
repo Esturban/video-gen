@@ -156,7 +156,7 @@ export function buildStory(cfg) {
     const reveal = tileW.map((_, i) => tileReveal(t, win0, i));
     const content = tileW.map((_, i) => eased(t, win0[0] + i * 0.18 + 0.45, win0[0] + i * 0.18 + 0.95));
     const tiles = tilePoly.map((full, i) => ({ poly: morphPoly(tileSeed[i], full, reveal[i]), shadow: reveal[i], visible: reveal[i] > 0.001 }));
-    const segs = stackedSegments({ x0: tileX0[0] + PAD, width: B.stackW - 2 * PAD, gap: B.barGap }, shares, t, [win0[0] + 0.7, win0[0] + 1.5], 0.12);
+    const segs = stackedSegments({ x0: tileX0[0] + PAD, width: tileW[0] - 2 * PAD, gap: B.barGap }, shares, t, [win0[0] + 0.7, win0[0] + 1.5], 0.12);
     const stack = {
       title: { x: tileX0[0] + PAD, y: tileTop[0] + 70, opacity: content[0] },
       segments: segs.map((sg, j) => ({
