@@ -10,6 +10,7 @@ import { formatChecklist, MANUAL_REVIEW, runChecklist } from "./lib/checklist.mj
 import { appendRenderEntry } from "./lib/review.mjs";
 import { shotlist } from "./lib/shotlist.mjs";
 import { checkFrames, DEAD_MAX_HOLD_S, formatFrameReport } from "./lib/checkframes.mjs";
+import { decodeInkGaps, INK_SAMPLE_FPS } from "./lib/inkgap.mjs";
 import { checkAudioSync, formatAudioReport } from "./lib/audiosync.mjs";
 import { checkCaptionSync, formatSyncReport } from "./lib/captionsync.mjs";
 import { wordsForScene } from "./lib/words.mjs";
@@ -29,6 +30,7 @@ Usage:
                          a scene with "variants" (e.g. 9x16) also gets <name>-<variant>.mp4, its poster and its own frame gate and contact sheet
   video check  <scene>   the pre-render checklist alone: PASS or FAIL per item, exit 0 or 2, writes nothing
   video frames <mp4>     frame gate on a rendered file: blank frames, dead stretches, teleports, plus a contact sheet. Exit 0 or 2
+  video ink    <mp4>     pixel-exact ink gap per edge on full-resolution frames (${INK_SAMPLE_FPS}/s): catches a hairline the gate's sample misses. Exit 0 or 2
   video stills <scene>   carousel: one PNG slide per beat plus slides.pdf, no video render
   video voice  <scene>   narration only: synthesise changed beats, retime the scene from the audio
                          (a scene with "captions": true also gets out/<area>/<name>/words.json on render, local whisper-cli)
@@ -336,6 +338,22 @@ function framesCommand(target, flags) {
   if (!result.pass) fail(`frame check failed on ${result.checks.filter((c) => !c.pass).map((c) => c.id).join(", ")}`);
 }
 
+/** `ink <mp4>` (CMO-7577): the closest any ink comes to each edge, measured per pixel on full-resolution frames, against the scaled safe margin. */
+function inkCommand(target) {
+  if (!target) fail("which file? e.g. bin/video ink path/to/render.mp4");
+  const file = resolve(target);
+  if (!existsSync(file)) fail(`${file} does not exist`);
+  const r = decodeInkGaps(file);
+  const side = (s) => (r.closest[s] ? `${s} ${r.closest[s].gap}px at ${r.closest[s].t.toFixed(1)}s` : `${s} no ink`);
+  console.log(`ink gap (${file}): ${r.width}x${r.height}, ${r.perFrame.length} full-resolution samples, margin ${r.margin.toFixed(0)}px`);
+  console.log(`  closest: ${["left", "right", "top", "bottom"].map(side).join(", ")}`);
+  if (r.failures.length) {
+    const first = r.failures[0];
+    fail(`ink inside the ${r.margin.toFixed(0)}px margin in ${r.failures.length} sample(s), first ${first.side} ${first.gap}px at ${first.t.toFixed(1)}s`);
+  }
+  console.log("  ink gap PASS");
+}
+
 async function stills(dir, flags, paths) {
   gate(dir, paths);
   const loaded = loadScene(dir, paths.brandDirs);
@@ -420,6 +438,7 @@ async function main() {
   if (cmd === "list") return list(rootPaths());
   if (cmd === "archive") return archive(target ?? fail("archive which video? bin/video list shows names"), rootPaths(), flags.root);
   if (cmd === "frames") return framesCommand(target, flags);
+  if (cmd === "ink") return inkCommand(target);
   const dir = findScene(target, flags.root);
   const paths = projectPaths(dir, flags);
   if (cmd === "check") return gate(dir, paths, true);
@@ -432,7 +451,7 @@ async function main() {
   if (cmd === "stills") return oneAtATime(() => stills(dir, flags, paths));
   if (cmd === "voice") return voiceStep(dir, Boolean(flags.force));
   if (cmd === "studio") return studio(dir, paths);
-  fail(`unknown command "${cmd}". Commands: render, check, frames, stills, voice, studio, list, archive`);
+  fail(`unknown command "${cmd}". Commands: render, check, frames, ink, stills, voice, studio, list, archive`);
 }
 
 main().catch((e) => {

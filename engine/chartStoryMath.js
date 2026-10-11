@@ -24,8 +24,12 @@ export const DEFAULT_LAYOUT = {
   bars: { baseY: 240, width: 150, gap: 60, maxH: 420, radius: 12 },
   line: { baseY: 200, height: 380, stroke: 10, dotR: 20 },
   number: { cx: 2150, cy: 0, circleR: 200, cardW: 520, cardH: 340, cardR: 56 },
-  cards: { width: 200, height: 300, radius: 36, gap: 28 },
-  bento: { gapY: 40, tileH: 300, radius: 36, gap: 28, stackW: 640, barH: 64, barRadius: 14, barGap: 4, areaH: 150, areaStroke: 6, tipR: 9 },
+  // columns: cards per row; 0 puts every card on one row (the master). A tall frame sets 1 and the cards stack as full-width rows (CMO-7577).
+  cards: { width: 200, height: 300, radius: 36, gap: 28, columns: 0 },
+  // stack: 0 puts the two tiles side by side under the cards; 1 puts the running-total tile under the share tile, both as wide as the cards (CMO-7577).
+  bento: { gapY: 40, tileH: 300, radius: 36, gap: 28, stackW: 640, barH: 64, barRadius: 14, barGap: 4, areaH: 150, areaStroke: 6, tipR: 9, stack: 0 },
+  // Font sizes in world px (on screen they scale with the camera zoom). A variant raises them so labels stay legible on a phone (CMO-7577).
+  text: { barLabel: 30, cardLabel: 28, cardValue: 64, tileTitle: 26, tileLabel: 22 },
 };
 
 const TINT_MAX = 0.6; // lightest wedge is the accent mixed this far toward white
@@ -78,15 +82,19 @@ export function buildStory(cfg) {
   const barTop = cfg.values.map((v) => L.bars.baseY - (v / maxV) * L.bars.maxH);
   const linePt = cfg.values.map((v, i) => [barCx[i], L.line.baseY - (v / maxV) * L.line.height]);
   const nm = L.number;
-  const cardsTotalW = cards.length * L.cards.width + (cards.length - 1) * L.cards.gap;
-  const smallCx = cards.map((_, j) => nm.cx - cardsTotalW / 2 + L.cards.width / 2 + j * (L.cards.width + L.cards.gap));
+  const cols = L.cards.columns > 0 ? Math.min(L.cards.columns, cards.length) : cards.length;
+  const rows = Math.ceil(cards.length / cols);
+  const cardsTotalW = cols * L.cards.width + (cols - 1) * L.cards.gap;
+  const cardsTotalH = rows * L.cards.height + (rows - 1) * L.cards.gap;
+  const smallCx = cards.map((_, j) => nm.cx - cardsTotalW / 2 + L.cards.width / 2 + (j % cols) * (L.cards.width + L.cards.gap));
+  const smallCy = cards.map((_, j) => nm.cy - cardsTotalH / 2 + L.cards.height / 2 + Math.floor(j / cols) * (L.cards.height + L.cards.gap));
 
   const barPoly = cfg.values.map((_, i) => roundedRectPoly(barCx[i], (barTop[i] + L.bars.baseY) / 2, L.bars.width, L.bars.baseY - barTop[i], L.bars.radius));
   const linePoly = cfg.values.map((_, i) => (i < n - 1 ? segmentQuad(linePt[i], linePt[i + 1], L.line.stroke) : circlePoly(linePt[i][0], linePt[i][1], L.line.dotR)));
   const absorbed = cfg.values.map(() => pointPoly(linePt[n - 1][0], linePt[n - 1][1]));
   const bigCircle = circlePoly(nm.cx, nm.cy, nm.circleR);
   const bigCard = roundedRectPoly(nm.cx, nm.cy, nm.cardW, nm.cardH, nm.cardR);
-  const smallPoly = cards.map((_, j) => roundedRectPoly(smallCx[j], nm.cy, L.cards.width, L.cards.height, L.cards.radius));
+  const smallPoly = cards.map((_, j) => roundedRectPoly(smallCx[j], smallCy[j], L.cards.width, L.cards.height, L.cards.radius));
 
   const k = (t, name, shift = 0) => eased(t, ...win(cfg, name, shift), cfg.curves?.[name] ?? STAGE_CURVES[name] ?? "smooth");
 
@@ -130,14 +138,18 @@ export function buildStory(cfg) {
   // The bento: two tiles under the cards that show the same series as a stacked share bar and a running-total area. Built only when scene data gives tl.bentoIn.
   const B = L.bento;
   const hasBento = Array.isArray(cfg.tl[BENTO_WINDOW]);
-  const tileTop = nm.cy + L.cards.height / 2 + B.gapY;
+  const cardsBottom = nm.cy + cardsTotalH / 2;
+  const stacked = B.stack > 0;
   const rowX0 = nm.cx - cardsTotalW / 2;
-  const tileW = [B.stackW, cardsTotalW - B.stackW - B.gap];
-  const tileX0 = [rowX0, rowX0 + B.stackW + B.gap];
-  const tilePoly = tileW.map((w, i) => roundedRectPoly(tileX0[i] + w / 2, tileTop + B.tileH / 2, w, B.tileH, B.radius));
-  const tileSeed = tileW.map((w, i) => roundedRectPoly(tileX0[i] + w / 2, nm.cy + L.cards.height / 2 - 2, w * 0.9, 6, 3)); // a thin line at the foot of the cards
+  const tileW = stacked ? [cardsTotalW, cardsTotalW] : [B.stackW, cardsTotalW - B.stackW - B.gap];
+  const tileX0 = stacked ? [rowX0, rowX0] : [rowX0, rowX0 + B.stackW + B.gap];
+  const tileTop = stacked ? [cardsBottom + B.gapY, cardsBottom + B.gapY + B.tileH + B.gap] : [cardsBottom + B.gapY, cardsBottom + B.gapY];
+  const tilePoly = tileW.map((w, i) => roundedRectPoly(tileX0[i] + w / 2, tileTop[i] + B.tileH / 2, w, B.tileH, B.radius));
+  // Each tile grows out of a thin line: the foot of the cards, or for a stacked second tile the top of its own slot.
+  const seedY = stacked ? [cardsBottom - 2, tileTop[1]] : [cardsBottom - 2, cardsBottom - 2];
+  const tileSeed = tileW.map((w, i) => roundedRectPoly(tileX0[i] + w / 2, seedY[i], w * 0.9, 6, 3));
   const PAD = 40;
-  const barY = tileTop + 140;
+  const barY = tileTop[0] + 140;
   const bentoAt = (t) => {
     if (!hasBento) return null;
     const win0 = cfg.tl[BENTO_WINDOW];
@@ -146,15 +158,16 @@ export function buildStory(cfg) {
     const tiles = tilePoly.map((full, i) => ({ poly: morphPoly(tileSeed[i], full, reveal[i]), shadow: reveal[i], visible: reveal[i] > 0.001 }));
     const segs = stackedSegments({ x0: tileX0[0] + PAD, width: B.stackW - 2 * PAD, gap: B.barGap }, shares, t, [win0[0] + 0.7, win0[0] + 1.5], 0.12);
     const stack = {
-      title: { x: tileX0[0] + PAD, y: tileTop + 70, opacity: content[0] },
+      title: { x: tileX0[0] + PAD, y: tileTop[0] + 70, opacity: content[0] },
       segments: segs.map((sg, j) => ({
         poly: roundedRectPoly(sg.x + sg.w / 2, barY, Math.max(sg.w, 0.01), B.barH, Math.min(B.barRadius, sg.w / 2)),
         visible: sg.w > 1, fill: rgbCss(shades[j]),
         label: { text: cfg.labels[j], x: sg.x + sg.fullW / 2, y: barY + B.barH / 2 + 44, opacity: content[0] * eased(t, win0[0] + 1.0 + j * 0.12, win0[0] + 1.5 + j * 0.12) },
       })),
     };
-    const area = areaGeometry(cfg.values, { x0: tileX0[1] + PAD, baseY: tileTop + B.tileH - 56, width: tileW[1] - 2 * PAD, height: B.areaH }, eased(t, win0[0] + 0.9, win0[0] + 2.1, "easeInOutSine"));
-    return { tiles, stack, area: { title: { x: tileX0[1] + PAD, y: tileTop + 70, opacity: content[1] }, ...area, opacity: content[1], stroke: B.areaStroke, tipR: B.tipR, baseY: tileTop + B.tileH - 56, x0: tileX0[1] + PAD, x1: tileX0[1] + tileW[1] - PAD } };
+    const areaBase = tileTop[1] + B.tileH - 56;
+    const area = areaGeometry(cfg.values, { x0: tileX0[1] + PAD, baseY: areaBase, width: tileW[1] - 2 * PAD, height: B.areaH }, eased(t, win0[0] + 0.9, win0[0] + 2.1, "easeInOutSine"));
+    return { tiles, stack, area: { title: { x: tileX0[1] + PAD, y: tileTop[1] + 70, opacity: content[1] }, ...area, opacity: content[1], stroke: B.areaStroke, tipR: B.tipR, baseY: areaBase, x0: tileX0[1] + PAD, x1: tileX0[1] + tileW[1] - PAD } };
   };
 
   return {
@@ -163,6 +176,7 @@ export function buildStory(cfg) {
     barTop,
     linePt,
     smallCx,
+    smallCy,
     at(t) {
       const wedges = cfg.values.map((_, i) => {
         const poly = elementPoly(i, t);
@@ -188,7 +202,7 @@ export function buildStory(cfg) {
         cardContent: cards.map((c, j) => {
           const w = [cfg.tl.cardsIn[0] + j * 0.1, cfg.tl.cardsIn[1] + j * 0.1];
           return {
-            x: smallCx[j], y: nm.cy, label: c.label, opacity: eased(t, w[0], w[0] + 0.5, "smooth"),
+            x: smallCx[j], y: smallCy[j], label: c.label, opacity: eased(t, w[0], w[0] + 0.5, "smooth"),
             value: countValue(t, { from: 0, to: c.share, start: w[0] + 0.2, end: w[1] + 0.2 }),
             bar: eased(t, w[0] + 0.2, w[1] + 0.2, "smooth") * (c.share / 100),
           };

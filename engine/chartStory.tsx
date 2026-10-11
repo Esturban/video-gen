@@ -20,12 +20,9 @@ export type StoryConfig = {
 const GRID = 90; // world px between background dots
 const GRID_EXTENT = [-2400, 5200] as const;
 const NUMBER_FONT_PX = 124;
-const CARD_VALUE_PX = 64;
-const CARD_LABEL_PX = 28;
-const LABEL_PX = 30;
-const TILE_TITLE_PX = 26;
-const TILE_LABEL_PX = 22;
 const BAR_H = 14;
+const ROW_CARD_ASPECT = 1.6; // a card wider than this many heights is a row (a stacked tall-frame layout): label left, value right, bar along the foot
+const ROW_CARD_PAD = 48;
 const BENTO_TITLES: [string, string] = ["Share of total", "Running total"];
 
 // Parallax layers: factor 1 sits in the world with the chart, below 1 is far, above 1 is near. Drift is px per second, slow on purpose.
@@ -52,6 +49,7 @@ export const ChartStory: React.FC<{ config: StoryConfig; colors: StoryColors; fo
   const [nearDx, nearDy] = [...layerShift(cam, NEAR.factor)].map((v, i) => v + driftOffset(crisp, NEAR.drift)[i]);
   const bento = s.bento;
   const bentoShape = shape.bento;
+  const T = story.layout.text; // font sizes in world px, from the layout so a variant can raise them (CMO-7577)
   return (
     <svg width={width} height={height} viewBox={viewBoxFor(cam, width, height)} style={{ position: "absolute", inset: 0, fontFamily }}>
       <defs>
@@ -66,7 +64,7 @@ export const ChartStory: React.FC<{ config: StoryConfig; colors: StoryColors; fo
       <rect x={GRID_EXTENT[0]} y={GRID_EXTENT[0]} width={GRID_EXTENT[1] - GRID_EXTENT[0]} height={GRID_EXTENT[1] - GRID_EXTENT[0]} fill="url(#story-dots)" opacity={0.9} />
 
       {s.baseline.opacity > 0.001 ? <line x1={s.baseline.x0} x2={s.baseline.x1} y1={s.baseline.y} y2={s.baseline.y} stroke={colors.inkSoft} strokeOpacity={0.45 * s.baseline.opacity} strokeWidth={3} strokeLinecap="round" /> : null}
-      {s.labels.map((l) => (l.opacity > 0.001 ? <text key={l.text} x={l.x} y={l.y} textAnchor="middle" fontSize={LABEL_PX} fontWeight={500} fill={colors.inkSoft} opacity={l.opacity}>{l.text}</text> : null))}
+      {s.labels.map((l) => (l.opacity > 0.001 ? <text key={l.text} x={l.x} y={l.y} textAnchor="middle" fontSize={T.barLabel} fontWeight={500} fill={colors.inkSoft} opacity={l.opacity}>{l.text}</text> : null))}
 
       {bentoShape ? bentoShape.tiles.map((tile, i) => (tile.visible ? (
         <g key={`tile${i}`}>
@@ -98,11 +96,22 @@ export const ChartStory: React.FC<{ config: StoryConfig; colors: StoryColors; fo
         if (c.opacity < 0.001) return null;
         const w = story.layout.cards.width;
         const h = story.layout.cards.height;
-        const trackW = w - 48;
+        const isRow = w > ROW_CARD_ASPECT * h;
+        const trackW = isRow ? w - 2 * ROW_CARD_PAD : w - 48;
+        const digits = { fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum" 1' } as const;
         return (
           <g key={`t${j}`} opacity={c.opacity}>
-            <text x={c.x} y={c.y - h / 2 + 70} textAnchor="middle" fontSize={CARD_LABEL_PX} fontWeight={500} fill={colors.inkSoft}>{c.label}</text>
-            <text x={c.x} y={c.y + 10} textAnchor="middle" dominantBaseline="central" fontSize={CARD_VALUE_PX} fontWeight={600} fill={colors.ink} style={{ fontVariantNumeric: "tabular-nums", fontFeatureSettings: '"tnum" 1' }}>{c.value}%</text>
+            {isRow ? (
+              <>
+                <text x={c.x - w / 2 + ROW_CARD_PAD} y={c.y - 24} dominantBaseline="central" fontSize={T.cardLabel} fontWeight={500} fill={colors.inkSoft}>{c.label}</text>
+                <text x={c.x + w / 2 - ROW_CARD_PAD} y={c.y - 24} textAnchor="end" dominantBaseline="central" fontSize={T.cardValue} fontWeight={600} fill={colors.ink} style={digits}>{c.value}%</text>
+              </>
+            ) : (
+              <>
+                <text x={c.x} y={c.y - h / 2 + 70} textAnchor="middle" fontSize={T.cardLabel} fontWeight={500} fill={colors.inkSoft}>{c.label}</text>
+                <text x={c.x} y={c.y + 10} textAnchor="middle" dominantBaseline="central" fontSize={T.cardValue} fontWeight={600} fill={colors.ink} style={digits}>{c.value}%</text>
+              </>
+            )}
             <rect x={c.x - trackW / 2} y={c.y + h / 2 - 66} width={trackW} height={BAR_H} rx={BAR_H / 2} fill={colors.line} />
             <rect x={c.x - trackW / 2} y={c.y + h / 2 - 66} width={Math.max(0.001, trackW * c.bar)} height={BAR_H} rx={BAR_H / 2} fill={colors.accent} />
           </g>
@@ -111,16 +120,16 @@ export const ChartStory: React.FC<{ config: StoryConfig; colors: StoryColors; fo
 
       {bento && bentoShape ? (
         <g>
-          {bento.stack.title.opacity > 0.001 ? <text x={bento.stack.title.x} y={bento.stack.title.y} fontSize={TILE_TITLE_PX} fontWeight={500} fill={colors.inkSoft} opacity={bento.stack.title.opacity}>{titles[0]}</text> : null}
+          {bento.stack.title.opacity > 0.001 ? <text x={bento.stack.title.x} y={bento.stack.title.y} fontSize={T.tileTitle} fontWeight={500} fill={colors.inkSoft} opacity={bento.stack.title.opacity}>{titles[0]}</text> : null}
           {bento.stack.segments.map((sg, j) => (
             <g key={`sg${j}`}>
               {sg.visible ? <path d={polyPath(sg.poly)} fill={sg.fill} /> : null}
-              {sg.label.opacity > 0.001 ? <text x={sg.label.x} y={sg.label.y} textAnchor="middle" fontSize={TILE_LABEL_PX} fontWeight={500} fill={colors.inkSoft} opacity={sg.label.opacity}>{sg.label.text}</text> : null}
+              {sg.label.opacity > 0.001 ? <text x={sg.label.x} y={sg.label.y} textAnchor="middle" fontSize={T.tileLabel} fontWeight={500} fill={colors.inkSoft} opacity={sg.label.opacity}>{sg.label.text}</text> : null}
             </g>
           ))}
           {bento.area.title.opacity > 0.001 ? (
             <g opacity={bento.area.opacity}>
-              <text x={bento.area.title.x} y={bento.area.title.y} fontSize={TILE_TITLE_PX} fontWeight={500} fill={colors.inkSoft}>{titles[1]}</text>
+              <text x={bento.area.title.x} y={bento.area.title.y} fontSize={T.tileTitle} fontWeight={500} fill={colors.inkSoft}>{titles[1]}</text>
               <line x1={bento.area.x0} x2={bento.area.x1} y1={bento.area.baseY} y2={bento.area.baseY} stroke={colors.line} strokeWidth={3} strokeLinecap="round" />
               {bento.area.area.length > 2 ? <polygon points={pts(bento.area.area)} fill={colors.accent} opacity={0.14} /> : null}
               {bento.area.line.length > 1 ? <polyline points={pts(bento.area.line)} fill="none" stroke={colors.accent} strokeWidth={bento.area.stroke} strokeLinecap="round" strokeLinejoin="round" /> : null}
