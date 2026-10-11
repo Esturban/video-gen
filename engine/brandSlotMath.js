@@ -60,5 +60,14 @@ export function slotPlacement(corner, margin, width, height) {
   };
 }
 
+/**
+ * Right padding of the signature box, in em. The script face's "V." flourish draws past the line box: measured 0.61em on the data-story-morph renders
+ * (CMO-7575, 39 px at 64 px type), which put the ink 24 px from the edge, inside the safe margin. 0.7em covers it with about 6 px of anti-alias headroom at 1440.
+ */
+export const SIGNATURE_PAD_RIGHT_EM = 0.7;
+
+/** Right padding in px for a signature set at fontPx, so the flourish ink, not just the line box, keeps the slot's margin. */
+export const signaturePadRight = (fontPx) => SIGNATURE_PAD_RIGHT_EM * fontPx;
+
 /** Scale factor for sizes defined on the 1440 reference canvas. */
 export const slotScale = (width, height) => Math.min(width, height) / REFERENCE_SIZE;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { deflateSync } from "node:zlib";
-import { CORNERS, SLOT_DEFAULTS, brandSlotState, resolveBrandSlot, slotContent, slotPlacement, slotScale } from "./brandSlotMath.js";
+import { CORNERS, SLOT_DEFAULTS, brandSlotState, resolveBrandSlot, signaturePadRight, slotContent, slotPlacement, slotScale } from "./brandSlotMath.js";
 import { validateBrandSlotAssets } from "../bin/lib/checklist.mjs";
 
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
@@ -87,4 +87,19 @@ test("with a generated PNG in assets/ the logo check passes; a non-PNG named .pn
   assert.match(validateBrandSlotAssets(dir, { ...SPEC, logo: "fake.png" })[0], /not a valid PNG/);
   assert.deepEqual(validateBrandSlotAssets(dir, SPEC), []);
   assert.equal(readFileSync(join(dir, "assets", "mark.png")).length, tinyPng().length);
+});
+
+// CMO-7575: measured on data-story-morph renders (1440x1440 and 1080x1920, fontSize 64 and 48 px): the "V." flourish of Herr Von Muellerhoff ends 39 px and 29 px
+// right of the line box, 0.61em, so a box placed at right: margin left the ink 24 px and 18 px from the edge, inside the 64 px safe margin.
+const MEASURED_FLOURISH_EM = 0.61;
+
+test("the signature's flourish ink stays inside the safe margin on a right corner, at every canvas size", () => {
+  const s = resolveBrandSlot(SPEC);
+  for (const [w, h] of [[1440, 1440], [1080, 1920], [1920, 1080]]) {
+    const scale = slotScale(w, h);
+    const fontPx = s.fontSize * scale;
+    const boxRight = slotPlacement(s.corner, s.margin, w, h).right;
+    const inkGap = boxRight + signaturePadRight(fontPx) - MEASURED_FLOURISH_EM * fontPx;
+    assert.ok(inkGap >= s.margin * scale, `${w}x${h}: ink ${inkGap.toFixed(1)} px from the edge, margin ${(s.margin * scale).toFixed(1)}`);
+  }
 });

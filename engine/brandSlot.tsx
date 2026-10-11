@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { cancelRender, continueRender, delayRender, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { useBrand } from "./beat";
-import { brandSlotState, resolveBrandSlot, slotContent, slotPlacement, slotScale } from "./brandSlotMath.js";
+import { brandSlotState, resolveBrandSlot, signaturePadRight, slotContent, slotPlacement, slotScale } from "./brandSlotMath.js";
 import signatureFontUrl from "./assets/fonts/HerrVonMuellerhoff-Regular.ttf";
 
 // Herr Von Muellerhoff, SIL Open Font License 1.1 (engine/assets/fonts/OFL-HerrVonMuellerhoff.txt).
@@ -43,8 +43,10 @@ export const BrandSlot: React.FC<{ spec: BrandSlotSpec }> = ({ spec }) => {
     return <Img src={staticFile(content.src)} style={{ ...common, height: slot.logoHeight * scale, width: "auto", clipPath: `inset(-10% ${100 - reveal * 110}% -10% -10%)` }} />;
   }
   // Wipe left to right like a pen stroke. The insets are negative on the other three sides, and on the right once the reveal is done, so the script's long overhangs are never clipped.
+  // The right padding holds the flourish's overhang inside the box, so the ink keeps the safe margin (CMO-7575).
+  const fontPx = slot.fontSize * scale;
   return (
-    <div style={{ ...common, color: ink, fontFamily: `'${SIGNATURE_FAMILY}', ${FALLBACK}`, fontSize: slot.fontSize * scale, lineHeight: 1, whiteSpace: "nowrap", clipPath: `inset(-30% ${100 - reveal * 125}% -30% -30%)` }}>
+    <div style={{ ...common, color: ink, fontFamily: `'${SIGNATURE_FAMILY}', ${FALLBACK}`, fontSize: fontPx, paddingRight: signaturePadRight(fontPx), lineHeight: 1, whiteSpace: "nowrap", clipPath:`inset(-30% ${100 - reveal * 125}% -30% -30%)` }}>
       {content.text}
     </div>
   );
