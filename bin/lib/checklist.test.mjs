@@ -9,12 +9,13 @@ const SCENE = { name: "t", owner: "CMO", area: "promo", brand: "b", beats: [{ n:
 const KINDS = "export const KINDS = { offer: X };";
 
 /** A scene folder plus a brands dir in a temp consumer root. Returns the args runChecklist wants. */
-function fixture({ scene = SCENE, kinds = KINDS, extra = {}, engine = {} } = {}) {
+function fixture({ scene = SCENE, kinds = KINDS, extra = {}, engine = {}, taste } = {}) {
   const root = mkdtempSync(join(tmpdir(), "checklist-"));
   const dir = join(root, "scenes", "promo", "t");
   mkdirSync(join(dir, "assets", "fonts"), { recursive: true });
   mkdirSync(join(root, "brands"), { recursive: true });
   writeFileSync(join(root, "brands", "b.json"), "{}");
+  if (taste) writeFileSync(join(root, "brands", "b.taste.json"), JSON.stringify(taste));
   writeFileSync(join(dir, "scene.json"), typeof scene === "string" ? scene : JSON.stringify(scene));
   writeFileSync(join(dir, "kinds.tsx"), kinds);
   for (const [name, text] of Object.entries(extra)) { mkdirSync(dirname(join(dir, name)), { recursive: true }); writeFileSync(join(dir, name), text); }
@@ -194,4 +195,49 @@ test("plan: true with a why passes; enter and exit are optional", () => {
 test("without plan: true there is no plan item and an empty why is ignored", () => {
   const scene = { ...SCENE, beats: [{ n: 0, start: 0, end: 4, kind: "offer", why: "" }] };
   assert.equal(runChecklist(fixture({ scene })).some((i) => i.id === "plan"), false);
+});
+
+// EV taste rules (CMO-7580): <brand>.taste.json next to the brand json; absent means the item passes.
+const TASTE = { banned_sfx_terms: ["swoosh", "whoosh"], banned_cold_open_flags: ["intro_sting"], min_beat_hold_s: 1.5, allowed_status_colours_in_video: [] };
+
+test("taste-rules passes a clean scene and reports no rules when the file is absent", () => {
+  const clean = runChecklist(fixture({ taste: TASTE })).find((i) => i.id === "taste-rules");
+  assert.equal(clean.pass, true);
+  const none = runChecklist(fixture()).find((i) => i.id === "taste-rules");
+  assert.equal(none.pass, true);
+  assert.match(none.label, /no taste rules for this brand/);
+});
+
+test("taste-rules fails an SFX cue whose name or file matches a banned term, naming the rule", () => {
+  const scene = { ...SCENE, beats: [{ n: 0, start: 0, end: 4, kind: "offer", sfx: [{ name: "Big Swoosh", file: "a.wav" }] }] };
+  const items = runChecklist(fixture({ scene, taste: TASTE }));
+  assert.deepEqual(failed(items), ["taste-rules"]);
+  assert.match(items.find((i) => i.id === "taste-rules").detail, /banned_sfx_terms.*swoosh/);
+  const byFile = { ...SCENE, sfx: ["hit.wav", "sounds/WHOOSH-2.wav"] };
+  assert.deepEqual(failed(runChecklist(fixture({ scene: byFile, taste: TASTE }))), ["taste-rules"]);
+});
+
+test("taste-rules fails a banned SFX file sitting in audio/", () => {
+  assert.deepEqual(failed(runChecklist(fixture({ extra: { "audio/swoosh.wav": "x" }, taste: TASTE }))), ["taste-rules"]);
+});
+
+test("taste-rules fails a truthy cold-open flag on the scene or the first beat, not a falsy one", () => {
+  const onScene = { ...SCENE, intro_sting: true };
+  const onBeat = { ...SCENE, beats: [{ n: 0, start: 0, end: 4, kind: "offer", intro_sting: "yes" }] };
+  const falsy = { ...SCENE, intro_sting: false };
+  for (const scene of [onScene, onBeat]) {
+    const items = runChecklist(fixture({ scene, taste: TASTE }));
+    assert.deepEqual(failed(items), ["taste-rules"]);
+    assert.match(items.find((i) => i.id === "taste-rules").detail, /banned_cold_open_flags.*intro_sting/);
+  }
+  assert.deepEqual(failed(runChecklist(fixture({ scene: falsy, taste: TASTE }))), []);
+});
+
+test("taste-rules fails a beat held shorter than min_beat_hold_s and skips untimed narrated beats", () => {
+  const short = { ...SCENE, beats: [{ n: 0, start: 0, end: 4, kind: "offer" }, { n: 1, start: 4, end: 5, kind: "offer" }] };
+  const items = runChecklist(fixture({ scene: short, taste: TASTE }));
+  assert.deepEqual(failed(items), ["taste-rules"]);
+  assert.match(items.find((i) => i.id === "taste-rules").detail, /min_beat_hold_s.*beat 1/);
+  const narrated = { ...SCENE, beats: [{ n: 0, kind: "offer", narration: "Hi." }] };
+  assert.deepEqual(failed(runChecklist(fixture({ scene: narrated, taste: TASTE }))), []);
 });

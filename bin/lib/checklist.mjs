@@ -150,6 +150,25 @@ function checkVariants(scene) {
   });
 }
 
+const cueText = (c) => (typeof c === "string" ? [c] : [c?.name, c?.file, c?.src].filter((v) => typeof v === "string"));
+
+/** EV taste rules (CMO-7580) from <brand>.taste.json beside the brand json. allowed_status_colours_in_video is not checked here. Null when the brand has no rules file. */
+function checkTaste(dir, scene, brandDirs) {
+  const brand = brandDirs.map((d) => join(d, `${scene.brand}.json`)).find(existsSync);
+  const file = brand && brand.replace(/\.json$/, ".taste.json");
+  if (!file || !existsSync(file)) return null;
+  const rules = JSON.parse(readFileSync(file, "utf8"));
+  const beats = scene.beats ?? [];
+  const audioDir = join(dir, "audio");
+  const cues = [scene.sfx, scene.audio, ...beats.flatMap((b) => [b.sfx, b.audio])].flatMap((v) => (Array.isArray(v) ? v : v ? [v] : [])).flatMap(cueText)
+    .concat(existsSync(audioDir) ? readdirSync(audioDir) : []);
+  const problems = [];
+  for (const cue of cues) { const term = (rules.banned_sfx_terms ?? []).find((t) => cue.toLowerCase().includes(t)); if (term) problems.push(`banned_sfx_terms "${term}" in cue "${cue}"`); }
+  for (const flag of rules.banned_cold_open_flags ?? []) if (scene[flag] || beats[0]?.[flag]) problems.push(`banned_cold_open_flags "${flag}" is set`);
+  for (const b of beats) if (b.end - b.start < rules.min_beat_hold_s) problems.push(`min_beat_hold_s ${rules.min_beat_hold_s}: beat ${b.n} holds ${+(b.end - b.start).toFixed(2)}s`);
+  return problems;
+}
+
 /** Run every mechanical check. Returns [{ id, label, pass, detail }]. */
 export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR }) {
   const { scene, problems: sceneProblems } = checkScene(dir);
@@ -158,6 +177,8 @@ export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR })
   const captions = scene?.captions ? [result("captions", "captions have narration to time them", checkCaptions(scene))] : []; // only when the scene turns captions on
   const plan = scene?.plan === true ? [result("plan", "every beat says why it is there (plan)", checkPlan(scene))] : []; // only when the scene opts in (CMO-7537)
   const brief = scene?.brief === true ? [result("brief", "brief.md and style-guide.md filled, every on-screen asset listed", briefProblems(dir, scene))] : []; // only when the scene opts in (CMO-7576)
+  const taste = scene?.beats ? checkTaste(dir, scene, brandDirs) : null;
+  const tasteItem = taste ? [result("taste-rules", "EV taste rules (taste.json)", taste)] : [{ id: "taste-rules", label: "no taste rules for this brand", pass: true, detail: "" }];
   return [
     result("scene", "scene.json valid", sceneProblems),
     result("kinds", "every beat kind present in kinds.tsx", scene ? checkKinds(dir, scene) : ["no scene to check"]),
@@ -171,6 +192,7 @@ export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR })
     ...captions,
     ...brief,
     ...checkVariants(scene),
+    ...tasteItem,
     result("output", "output dir writable", checkWritable(outDir)),
   ];
 }

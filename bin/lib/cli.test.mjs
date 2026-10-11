@@ -28,7 +28,7 @@ test("check prints PASS per item and exits 0 on a clean scene", () => {
   const r = video("check", dir);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /PASS {2}scene\.json valid/);
-  assert.match(r.stdout, /checklist PASS: 8\/8/);
+  assert.match(r.stdout, /checklist PASS: 9\/9/);
   assert.doesNotMatch(r.stdout, /FAIL/);
 });
 
@@ -67,7 +67,7 @@ test("check runs the checklist per variant and passes a scene with a valid 9x16 
   const r = video("check", dir);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /PASS {2}variant 9x16: 1080x1920/);
-  assert.match(r.stdout, /checklist PASS: 9\/9/);
+  assert.match(r.stdout, /checklist PASS: 10\/10/);
 });
 
 test("check fails a variant whose size does not match its name", () => {
