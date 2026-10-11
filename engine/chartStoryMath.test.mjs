@@ -198,9 +198,10 @@ test("the camera is still while any digit changes, so no text can smear", () => 
 export const VERTICAL = {
   layout: {
     ring: { inner: 130, outer: 210, dotR: 36 }, strip: { cx: 0, cy: 900 }, bars: { baseY: 1240, width: 120, gap: 36, maxH: 640 }, line: { baseY: 1200, height: 600 },
-    number: { cx: 0, cy: 2000 }, cards: { width: 160, height: 340, gap: 20 }, bento: { gapY: 60, tileH: 360, areaH: 210, stackW: 500 },
+    number: { cx: 0, cy: 2000 }, cards: { width: 960, height: 240, gap: 24, columns: 1 }, bento: { gapY: 56, tileH: 300, gap: 28, areaH: 150, stack: 1 },
+    text: { barLabel: 34, cardLabel: 44, cardValue: 76, tileTitle: 40, tileLabel: 40 },
   },
-  camera: [[0, 0, 0, 1.3], [2.9, 0, 6, 1.15], [4.6, 2, 12, 1.12], [6.6, 0, 900, 0.9], [7.6, 0, 945, 1.05], [9.4, 0, 952, 1.06], [10.8, 0, 948, 1.08], [12.4, 0, 945, 1.08], [13.3, 0, 900, 1], [14.7, 0, 2000, 1.25], [17.5, 0, 2000, 1.25], [19.5, 0, 2000, 1], [22.8, 0, 2000, 1], [24.6, 0, 2210, 1.05], [26.8, 0, 2215, 1.05]],
+  camera: [[0, 0, 0, 1.3], [2.9, 0, 6, 1.15], [4.6, 2, 12, 1.12], [6.6, 0, 900, 0.9], [7.6, 0, 945, 1.05], [9.4, 0, 952, 1.06], [10.8, 0, 948, 1.08], [12.4, 0, 945, 1.08], [13.3, 0, 900, 1], [14.7, 0, 2000, 1.25], [17.5, 0, 2000, 1.25], [19.3, 0, 2000, 1], [22.8, 0, 2000, 1], [24.6, 0, 2342, 0.82], [26.8, 0, 2346, 0.82]],
 };
 const TALL = [1080, 1920];
 const SAFE = 48; // 64 px on the 1440 reference, scaled by min(w, h) / 1440
@@ -234,4 +235,66 @@ test("9:16 variant is a re-composition, not a crop: the master layout and camera
   const bar = (st) => st.barTop.map((top) => st.layout.bars.baseY - top);
   assert.ok(Math.max(...bar(tall)) > Math.max(...bar(story)), "bars stand taller in the tall frame");
   assert.ok(tall.layout.number.cy > tall.layout.strip.cy && tall.layout.number.cx === tall.layout.strip.cx, "the chain flows down, not across");
+});
+
+// ---- CMO-7577 round 2: the second act is RE-LAID for the tall frame (Reality Checker REVIEW-9x16.md, required items 1 and 2) ----
+const tallStory = buildStory({ ...CFG, ...VERTICAL });
+const toScreen = (c, [W, H]) => ({ sx: (x) => (x - c.cx) * c.zoom + W / 2, sy: (y) => (y - c.cy) * c.zoom + H / 2 });
+
+/** Share of the frame height covered, on screen, by the given world polys at time t. */
+function heightShare(st, t, pick) {
+  const s = st.at(t);
+  const b = pick(s).map(bounds).reduce((a, q) => ({ y0: Math.min(a.y0, q.y0), y1: Math.max(a.y1, q.y1) }));
+  const { sy } = toScreen(s.camera, TALL);
+  return (Math.min(TALL[1], sy(b.y1)) - Math.max(0, sy(b.y0))) / TALL[1];
+}
+
+test("9:16 second act stacks: the five cards sit in one column, the two tiles one under the other", () => {
+  const s = tallStory.at(END);
+  assert.equal(new Set(s.cardContent.map((c) => c.x)).size, 1, "every card shares one x");
+  s.cardContent.slice(1).forEach((c, j) => assert.ok(c.y > s.cardContent[j].y, `card ${j + 1} sits below card ${j}`));
+  const [t0, t1] = s.bento.tiles.map((x) => bounds(x.poly));
+  assert.ok(t1.y0 > t0.y1, "the running-total tile sits under the share tile");
+  assert.ok(Math.abs(t0.x0 - t1.x0) < 1 && Math.abs(t0.x1 - t1.x1) < 1, "both tiles span the same width");
+  assert.ok(t0.y0 > Math.max(...s.cards.map((c) => bounds(c.poly).y1)), "the tiles sit under the cards");
+});
+
+test("9:16 second act fills the tall frame: cards span at least 60% of the height at 21s, cards and tiles at least 80% at the end", () => {
+  const cardsOnly = heightShare(tallStory, 21, (s) => s.cards.map((c) => c.poly));
+  const all = heightShare(tallStory, END, (s) => [...s.cards.map((c) => c.poly), ...s.bento.tiles.map((x) => x.poly)]);
+  assert.ok(cardsOnly >= 0.6, `cards cover ${(cardsOnly * 100).toFixed(0)}% of the height at 21s`);
+  assert.ok(all >= 0.8, `cards and tiles cover ${(all * 100).toFixed(0)}% of the height at the end`);
+});
+
+/** Every month or tile label drawn at time t, as { what, px } with px its on-screen size. */
+function labelSizes(st, t) {
+  const s = st.at(t);
+  const T = st.layout.text;
+  const z = s.camera.zoom;
+  const on = (o) => o > 0.05;
+  return [
+    ...s.labels.filter((l) => on(l.opacity)).map((l) => ({ what: `bar label ${l.text}`, px: T.barLabel * z })),
+    ...s.cardContent.filter((c) => on(c.opacity)).map((c) => ({ what: `card label ${c.label}`, px: T.cardLabel * z })),
+    ...(s.bento ? [
+      ...s.bento.stack.segments.filter((sg) => on(sg.label.opacity)).map((sg) => ({ what: `share label ${sg.label.text}`, px: T.tileLabel * z })),
+      ...(on(s.bento.stack.title.opacity) ? [{ what: "share title", px: T.tileTitle * z }] : []),
+      ...(on(s.bento.area.title.opacity) ? [{ what: "running total title", px: T.tileTitle * z }] : []),
+    ] : []),
+  ];
+}
+
+test("9:16: every month and tile label is at least 32 px on screen whenever it is visible", () => {
+  const small = [];
+  for (let f = 0; f <= Math.round(END * 30); f++) for (const l of labelSizes(tallStory, f / 30)) if (l.px < 32) small.push(`${(f / 30).toFixed(2)}s ${l.what} ${l.px.toFixed(1)}px`);
+  assert.deepEqual(small.slice(0, 5), []);
+});
+
+test("master defaults are unchanged: one row of cards, tiles side by side, the original text sizes", () => {
+  const s = story.at(END);
+  assert.ok(s.cardContent.every((c) => c.y === story.layout.number.cy), "all cards on the number's row");
+  const [t0, t1] = s.bento.tiles.map((x) => bounds(x.poly));
+  assert.ok(Math.abs(t0.y0 - t1.y0) < 1 && t1.x0 > t0.x1, "tiles side by side");
+  assert.deepEqual(story.layout.text, { barLabel: 30, cardLabel: 28, cardValue: 64, tileTitle: 26, tileLabel: 22 });
+  assert.equal(story.layout.cards.columns, 0);
+  assert.equal(story.layout.bento.stack, 0);
 });
