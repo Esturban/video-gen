@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { resolveBrandSlot } from "../../engine/brandSlotMath.js";
 import { variantProblems } from "./variants.mjs";
 import { briefProblems } from "./brief.mjs";
+import { ahaProblems, introProblems, shapeApplies } from "./shape.mjs";
+import { postFor } from "./post.mjs";
 
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 const BANNED_A = /(?<!\d)(14|4) hours/i; // "14 hours" or "4 hours" ...
@@ -153,11 +155,15 @@ function checkVariants(scene) {
 const cueText = (c) => (typeof c === "string" ? [c] : [c?.name, c?.file, c?.src].filter((v) => typeof v === "string"));
 
 /** EV taste rules (CMO-7580) from <brand>.taste.json beside the brand json. allowed_status_colours_in_video is not checked here. Null when the brand has no rules file. */
-function checkTaste(dir, scene, brandDirs) {
+function loadTasteRules(scene, brandDirs) {
   const brand = brandDirs.map((d) => join(d, `${scene.brand}.json`)).find(existsSync);
   const file = brand && brand.replace(/\.json$/, ".taste.json");
-  if (!file || !existsSync(file)) return null;
-  const rules = JSON.parse(readFileSync(file, "utf8"));
+  return file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+}
+
+function checkTaste(dir, scene, brandDirs) {
+  const rules = loadTasteRules(scene, brandDirs);
+  if (!rules) return null;
   const beats = scene.beats ?? [];
   const audioDir = join(dir, "audio");
   const cues = [scene.sfx, scene.audio, ...beats.flatMap((b) => [b.sfx, b.audio])].flatMap((v) => (Array.isArray(v) ? v : v ? [v] : [])).flatMap(cueText)
@@ -177,6 +183,10 @@ export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR })
   const captions = scene?.captions ? [result("captions", "captions have narration to time them", checkCaptions(scene))] : []; // only when the scene turns captions on
   const plan = scene?.plan === true ? [result("plan", "every beat says why it is there (plan)", checkPlan(scene))] : []; // only when the scene opts in (CMO-7537)
   const brief = scene?.brief === true ? [result("brief", "brief.md and style-guide.md filled, every on-screen asset listed", briefProblems(dir, scene))] : []; // only when the scene opts in (CMO-7576)
+  const rules = scene?.beats ? loadTasteRules(scene, brandDirs) : null;
+  const aha = scene && shapeApplies(scene, rules) ? [result("aha", "one aha: the ONE finding the video builds to (shape rule)", ahaProblems(scene, rules))] : []; // required where the brand's taste.json says require_aha (CMO-8170)
+  const intro = scene?.intro === undefined ? [] : [result("intro", "intro resolves to a scenes/ folder", introProblems(dir, scene))]; // only when the scene asks for one
+  const post = scene && !postFor(scene).skip ? [result("post", "LinkedIn post.md under 80 words, hook, video, 2 hashtags max", postFor(scene).problems)] : [];
   const taste = scene?.beats ? checkTaste(dir, scene, brandDirs) : null;
   const tasteItem = taste ? [result("taste-rules", "EV taste rules (taste.json)", taste)] : [{ id: "taste-rules", label: "no taste rules for this brand", pass: true, detail: "" }];
   return [
@@ -193,6 +203,9 @@ export function runChecklist({ dir, brandDirs, outDir, engineDir = ENGINE_DIR })
     ...brief,
     ...checkVariants(scene),
     ...tasteItem,
+    ...aha,
+    ...intro,
+    ...post,
     result("output", "output dir writable", checkWritable(outDir)),
   ];
 }

@@ -241,3 +241,57 @@ test("taste-rules fails a beat held shorter than min_beat_hold_s and skips untim
   const narrated = { ...SCENE, beats: [{ n: 0, kind: "offer", narration: "Hi." }] };
   assert.deepEqual(failed(runChecklist(fixture({ scene: narrated, taste: TASTE }))), []);
 });
+
+// One aha (CMO-8170): gated on require_aha in <brand>.taste.json; aha_exempt names the scenes that predate the rule.
+const SHAPE_RULES = { ...TASTE, require_aha: true, aha_exempt: ["legacy"] };
+const AHA_MSG = 'scene has no "aha": name the ONE finding the video builds to (EV shape rule, CMO-8170)';
+
+test("require_aha: a scene with no aha fails the aha item with the shape message", () => {
+  const items = runChecklist(fixture({ taste: SHAPE_RULES }));
+  assert.deepEqual(failed(items), ["aha"]);
+  assert.equal(items.find((i) => i.id === "aha").detail, AHA_MSG);
+});
+
+test("require_aha: a blank aha fails, a filled aha passes", () => {
+  assert.deepEqual(failed(runChecklist(fixture({ scene: { ...SCENE, aha: "  " }, taste: SHAPE_RULES }))), ["aha"]);
+  const items = runChecklist(fixture({ scene: { ...SCENE, aha: "Small models win." }, taste: SHAPE_RULES }));
+  assert.deepEqual(failed(items), []);
+  assert.ok(items.some((i) => i.id === "aha" && i.pass));
+});
+
+test("require_aha: an aha_exempt scene name has no aha item", () => {
+  const items = runChecklist(fixture({ scene: { ...SCENE, name: "legacy" }, taste: SHAPE_RULES }));
+  assert.deepEqual(failed(items), []);
+  assert.equal(items.some((i) => i.id === "aha"), false);
+});
+
+test("a brand without require_aha is unaffected, and so is a brand with no taste file", () => {
+  assert.equal(runChecklist(fixture({ taste: TASTE })).some((i) => i.id === "aha"), false);
+  assert.equal(runChecklist(fixture()).some((i) => i.id === "aha"), false);
+});
+
+test("a non-string history fails the aha item", () => {
+  assert.deepEqual(failed(runChecklist(fixture({ scene: { ...SCENE, aha: "x", history: 3 }, taste: SHAPE_RULES }))), ["aha"]);
+});
+
+test("intro must resolve to a folder under scenes/", () => {
+  const ok = fixture({ scene: { ...SCENE, intro: "brand/intro" } });
+  mkdirSync(join(ok.dir, "..", "..", "brand", "intro"), { recursive: true });
+  assert.deepEqual(failed(runChecklist(ok)), []);
+  assert.ok(runChecklist(ok).some((i) => i.id === "intro" && i.pass));
+  const bad = runChecklist(fixture({ scene: { ...SCENE, intro: "brand/nope" } }));
+  assert.deepEqual(failed(bad), ["intro"]);
+  assert.match(bad.find((i) => i.id === "intro").detail, /does not resolve to a folder/);
+  assert.equal(runChecklist(fixture()).some((i) => i.id === "intro"), false);
+});
+
+test("post item: a derived post under 80 words passes, an over-long explicit post fails", () => {
+  const ok = runChecklist(fixture({ scene: { ...SCENE, aha: "Small models win.", history: "In 2012 a run took a week." } }));
+  assert.ok(ok.some((i) => i.id === "post" && i.pass));
+  const long = { ...SCENE, aha: "x.", post: { hook: "Hook.", body: Array.from({ length: 90 }, () => "w").join(" ") } };
+  assert.deepEqual(failed(runChecklist(fixture({ scene: long }))), ["post"]);
+});
+
+test("no post item for a scene with no aha and no post", () => {
+  assert.equal(runChecklist(fixture()).some((i) => i.id === "post"), false);
+});

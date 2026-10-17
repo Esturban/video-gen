@@ -18,6 +18,8 @@ import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } fr
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 import { resolveVariant, variantFileName, variantSizes } from "./lib/variants.mjs";
 import { parseRange, rangeFrames } from "./lib/range.mjs";
+import { introMp4, prependIntro } from "./lib/intro.mjs";
+import { postFor } from "./lib/post.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const STALE_DAYS = 60;
@@ -27,6 +29,7 @@ const HELP = `video: the video engine (video-gen)
 
 Usage:
   video render <scene>   60fps master with motion blur, 30fps LinkedIn cut, poster, one still per beat, then the frame gate (a FAIL exits 2, the file is kept)
+                         also writes post.md beside the mp4 (under 80 words, a violation exits 2); "intro": "brand/intro" adds <name>-with-intro.mp4
                          a scene with "variants" (e.g. 9x16) also gets <name>-<variant>.mp4, its poster and its own frame gate and contact sheet
   video check  <scene>   the pre-render checklist alone: PASS or FAIL per item, exit 0 or 2, writes nothing
   video frames <mp4>     frame gate on a rendered file: blank frames, dead stretches, teleports, plus a contact sheet. Exit 0 or 2
@@ -191,6 +194,22 @@ function gate(dir, paths, standalone = false) {
   log(`  REVIEW BY EYE before handing to EV (DEV-7364):\n${MANUAL_REVIEW.map((m) => `    - ${m}`).join("\n")}\n    - flicker: constant frame rate, no duplicate frames (checked after render below)`);
 }
 
+/** The rendered intro mp4 for scene.intro, from the consumer's real out/ folder (a --out scratch render has no intro). Fails before any render time is spent. */
+function introFor(scene, paths) {
+  if (!scene.intro) return null;
+  try { return introMp4(scene.intro, join(paths.root, "out")); } catch (e) { return fail(e.message); }
+}
+
+/** Write post.md beside the mp4 (CMO-8170). A scene with no aha or post fields is skipped with a one-line notice; a rule violation exits 2. */
+function writePost(scene, dest) {
+  const post = postFor(scene);
+  if (post.skip) return log(`post.md skipped: ${post.reason} (add "aha" or "post" to get one)`);
+  if (post.problems.length) fail(`post.md breaks the post rules: ${post.problems.join("; ")}`);
+  const file = join(dest, "post.md");
+  writeFileSync(file, `${post.text}\n`);
+  log(`post.md: ${post.words} words (limit under 80) -> ${file}`);
+}
+
 /** Post-render facts from the master: size, fps, duration, audio. Printed so the run shows what was produced. */
 function probe(master, scene, fps, label = "master") {
   const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height,r_frame_rate,avg_frame_rate,duration", "-of", "json", master]).toString());
@@ -205,6 +224,7 @@ async function render(dir, flags, paths, tokens) {
   gate(dir, paths);
   if (hasNarration(JSON.parse(readFileSync(join(dir, "scene.json"), "utf8")))) voiceStep(dir, false); // raw file: narrated beats may have no times until the voice step writes them
   const timed = loadScene(dir, paths.brandDirs);
+  const introFile = introFor(timed.scene, paths);
   const fps = flags.draft ? 30 : Number(flags.fps ?? 60);
   const blur = flags.draft ? 1 : Number(flags.blur ?? 2);
   if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
@@ -234,6 +254,8 @@ async function render(dir, flags, paths, tokens) {
   }
   log(`done in ${minutes.toFixed(1)} min`);
   for (const f of files) console.log(f);
+  if (introFile) { const joined = prependIntro(master, introFile); log(`intro: ${scene.intro} put in front of the master (master untouched)`); console.log(joined); }
+  writePost(scene, dest);
   // Frame gate and caption sync on every cut, each with its own contact sheet next to the master; all are reported before any FAIL exits.
   const failures = cuts.flatMap((cut, i) => {
     const frames = frameGate(files[i], dest, flags);
