@@ -70,7 +70,8 @@ const SKETCH_BEAT = {
     { t: "count", x: 960, y: 900, to: 48000, size: 120, anchor: "middle", at: [6, 9] },
   ],
 };
-const BEATS = { Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT };
+const INTRO_BEAT = { ...PLAIN_BEAT, end: 6.5, wordmark: "EV Advisory", byline: "Esteban V.", series: "Episode 03", head: null };
+const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -86,6 +87,7 @@ const CASES = {
   UiDemo: ["<UiDemo />"],
   OfferExplainer: ["<OfferExplainer />"],
   GrowLine: ["<GrowLine />"],
+  IntroSequence: ["<IntroSequence />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
