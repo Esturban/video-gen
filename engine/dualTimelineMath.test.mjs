@@ -174,3 +174,46 @@ test("a square frame picks the square layout and stays inside the margins", () =
     }
   }
 });
+
+test("blocks.ticks 'internal' draws a '?' tick only at the K-1 internal block boundaries (CMO-8232 F2)", () => {
+  const cfg = { ...CFG, blocks: { ...CFG.blocks, ticks: "internal" } };
+  for (const [W, H] of [...SIZES, [1080, 1080]]) {
+    const f = frameAt(cfg, W, H, 39);
+    assert.equal(f.ticks.length, 4, "four renewal decisions, not five");
+    assert.deepEqual(f.ticks.map((k) => k.x), f.blocks.slice(0, 4).map((b) => b.x1));
+    assert.ok(!f.ticks.some((k) => Math.abs(k.x - f.blocks[4].x1) < 1e-9), "no tick after the last block");
+    assert.equal(f.texts.filter((x) => x.text === "?").length, 4);
+    assert.equal(f.pulses.filter((p) => p.key.startsWith("tick-")).length, 4);
+  }
+});
+
+test("blocks.ticks defaults to a tick after every block, and an unknown value throws", () => {
+  assert.equal(frameAt(CFG, 1920, 1080, 39).ticks.length, 5);
+  assert.equal(frameAt({ ...CFG, blocks: { ...CFG.blocks, ticks: "all" } }, 1920, 1080, 39).ticks.length, 5);
+  assert.throws(() => validateConfig({ ...CFG, blocks: { ...CFG.blocks, ticks: "some" } }), /ticks/);
+});
+
+test("the gap band bottom sits 48 px (design) above the lease blocks, clear of the tick centres", () => {
+  for (const [W, H] of SIZES) {
+    const f = frameAt(CFG, W, H, 33);
+    const lease = f.lanes[1];
+    const top = lease.y - f.blocks[0].h / 2;
+    assert.ok(Math.abs(f.gap.y1 - (top - 48 * f.s)) < 1e-9, `band bottom ${f.gap.y1} vs ${top - 48 * f.s}`);
+    assert.ok(f.gap.y1 < f.ticks[0].y, "band ends above the tick centre line");
+  }
+});
+
+test("the bond bar's leading edge moves from the first frame of its draw and lands exactly on the cap (no pill stall)", () => {
+  for (const [W, H] of SIZES) {
+    const [a, b] = CFG.bar.draw;
+    let prev = -Infinity;
+    for (const t of times(a + 1 / 30, b, 30)) {
+      const bar = frameAt(CFG, W, H, t).bar;
+      assert.ok(bar.xe - bar.x0 >= bar.h - 1e-9, "never narrower than its own pill");
+      assert.ok(bar.xe > prev, `leading edge stalled at ${t.toFixed(3)} s`);
+      prev = bar.xe;
+    }
+    const end = frameAt(CFG, W, H, b + 0.5).bar;
+    assert.ok(Math.abs(end.xe - end.x1) < 1e-9, "the bar ends exactly at the cap");
+  }
+});

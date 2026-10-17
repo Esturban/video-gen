@@ -15,6 +15,8 @@ export const EM_BOLD = 0.6; // the same for semibold and bold
 const FADE_S = 0.5;
 const GAP_BASE = 0.26; // amber band alpha at rest; the pulse adds up to GAP_DEPTH
 const GAP_DEPTH = 0.1;
+const GAP_BOTTOM_LIFT = 20; // design px the band bottom clears above the lease pad, so the "?" ticks sit on paper, not in the band
+const TICK_MODES = ["all", "internal"]; // blocks.ticks: a tick after every block (default) or only at the K-1 boundaries between blocks
 const BOX_PAD = 16;
 
 /** Design layouts in px at their own size. Lane labels sit in a left gutter (64 to x0), so the axis starts at x0, clear of "Lease". */
@@ -53,6 +55,7 @@ export function validateConfig(cfg) {
   }
   const K = cfg.blocks?.items?.length ?? 0;
   if (cfg.blocks && (!(cfg.blocks.years > 0) || K * cfg.blocks.years > ax.to - ax.from)) throw new Error(`blocks: ${K} x ${cfg.blocks.years} years do not fit the axis`);
+  if (cfg.blocks?.ticks !== undefined && !TICK_MODES.includes(cfg.blocks.ticks)) throw new Error(`blocks.ticks must be one of ${TICK_MODES.join(", ")}, got ${cfg.blocks.ticks}`);
   for (const b of cfg.brackets ?? []) {
     if (b.kind === "span" && !(b.from >= 0 && b.to < K && b.from <= b.to)) throw new Error(`bracket span ${b.from}..${b.to} is outside block 0..${K - 1}`);
     if (b.kind !== "span" && b.kind !== "ticks") throw new Error(`bracket kind must be span or ticks, got ${b.kind}`);
@@ -102,7 +105,8 @@ function blocksAt(cfg, G, R, t) {
     y: lane.y, h: R.h, op: smooth(t, it.at, it.at + 0.4), fill: smooth(t, it.fill ?? it.at, (it.fill ?? it.at) + 0.5),
   }));
   const ph = cfg.playhead;
-  const ticks = blocks.map((b, i) => {
+  const ticked = B.ticks === "internal" ? blocks.slice(0, K - 1) : blocks;
+  const ticks = ticked.map((b, i) => {
     const showAt = (i < K - 1 ? B.items[i + 1].at : B.items[i].fill ?? B.items[i].at) + 0.2;
     const cross = ph ? ph.at + ph.dur * (b.x1 - G.x0) / (G.x1 - G.x0) : Infinity;
     const pulse = bump((t - cross) * PULSE_HZ * 2); // one rise and fall in 1 / (2 * PULSE_HZ) s
@@ -136,7 +140,7 @@ function gapAt(cfg, G, R, blocks, t) {
   const op = smooth(t, g.at, g.at + (g.fade ?? 1));
   const pulse = t > g.at ? 0.5 - 0.5 * Math.cos(2 * Math.PI * PULSE_HZ * (t - g.at)) : 0;
   const x0 = blocks.length ? blocks[g.fromBlock].x0 : G.x0;
-  return { x0, x1: G.x1, y0: top.y + R.h / 2 + pad, y1: bottom.y - R.h / 2 - pad, op, alpha: op * (GAP_BASE + GAP_DEPTH * pulse), pulse };
+  return { x0, x1: G.x1, y0: top.y + R.h / 2 + pad, y1: bottom.y - R.h / 2 - pad - GAP_BOTTOM_LIFT * G.s, op, alpha: op * (GAP_BASE + GAP_DEPTH * pulse), pulse };
 }
 
 /** One text item; tone is always ink or inkSoft, so gold and amber are never used for lettering. */
@@ -213,7 +217,8 @@ export function frameAt(cfg, W, H, t) {
   const R = lanesAt(cfg, G, t);
   const barLane = cfg.bar ? R.by[cfg.bar.lane] : null;
   const p = cfg.bar ? smooth(t, cfg.bar.draw[0], cfg.bar.draw[1]) : 0;
-  const bar = barLane ? { x0: G.x0, x1: G.x1, xe: G.x0 + p * (G.x1 - G.x0), y: barLane.y, h: R.h, p, op: barLane.op, capOp: smooth(t, cfg.bar.draw[1], cfg.bar.draw[1] + 0.3) } : null;
+  // the leading edge grows out of the bar's own pill (width h) from the first frame, so the draw never sits still while p < h / width
+  const bar = barLane ? { x0: G.x0, x1: G.x1, xe: G.x0 + R.h + p * (G.x1 - G.x0 - R.h), y: barLane.y, h: R.h, p, op: barLane.op, capOp: smooth(t, cfg.bar.draw[1], cfg.bar.draw[1] + 0.3) } : null;
   const { blocks, ticks } = blocksAt(cfg, G, R, t);
   const ph = cfg.playhead;
   const playhead = ph ? { x: G.x0 + (G.x1 - G.x0) * clamp01((t - ph.at) / ph.dur), y0: R.lanes[0].y - R.h / 2 - 20 * G.s, y1: R.lanes[R.lanes.length - 1].y + R.h / 2 + 20 * G.s, op: window01(t, ph.at, ph.at + ph.dur + 0.4, 0.2, 0.3) } : null;
