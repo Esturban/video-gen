@@ -16,6 +16,7 @@ const DASH: Record<string, (w: number, s: number) => string | undefined> = {
   dashed: (_w, s) => `${18 * s} ${12 * s}`,
   dotted: (w) => `0.1 ${w * 2.4}`,
 };
+const BIG_HALO = 0.28; // paper halo around the big figure as a fraction of its size: wide enough to knock out the edges that run behind it
 const DEFAULT_COLORS = { solid: "accent", dashed: "ink", dotted: "inkSoft", warm: "action", cool: "accent", dot: "ink" };
 
 type Caption = {
@@ -151,7 +152,7 @@ export const FlowNetwork: React.FC = () => {
           <g key={cap.key}>
             {cap.rows.map((r) => <text key={r.key} x={r.x} y={r.y} textAnchor={anchor} fontSize={r.px} fontWeight={r.weight} fill={r.role === "small" ? c.inkSoft : c.ink} opacity={r.op} {...halo(10 * s)} {...font}>{r.text}</text>)}
             {cap.chip && captionChip(cap.chip, anchor)}
-            {big && cap.big && <text x={bx} y={bY} textAnchor={place === "right" ? "start" : place === "left" ? "end" : "middle"} fontSize={bigPx} fontWeight={600} fill={col(pal.warm)} opacity={cap.big.op} {...halo(12 * s)} {...font}>{cap.big.text}</text>}
+            {big && cap.big && <text x={bx} y={bY} textAnchor={place === "right" ? "start" : place === "left" ? "end" : "middle"} fontSize={bigPx} fontWeight={600} fill={col(pal.warm)} opacity={cap.big.op} {...halo(bigPx * BIG_HALO)} {...font}>{cap.big.text}</text>}
             {cap.source && <text x={cap.source.x} y={cap.source.y} textAnchor={anchor} fontSize={cap.source.px} fontWeight={500} fill={c.inkSoft} opacity={cap.source.op} {...halo(8 * s)} {...font}>{cap.source.text}</text>}
           </g>
         );
