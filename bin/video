@@ -20,6 +20,7 @@ import { resolveVariant, variantFileName, variantSizes } from "./lib/variants.mj
 import { parseRange, rangeFrames } from "./lib/range.mjs";
 import { introFileFor, prependIntro } from "./lib/intro.mjs";
 import { postFor } from "./lib/post.mjs";
+import { aacArgs, LOUDNESS, mixNarration } from "./lib/voicefx.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const STALE_DAYS = 60;
@@ -164,13 +165,11 @@ async function bundleScene(dir, loaded, fps, render = null) {
 // Last fully visible moment of a beat: after its build, before the fade out.
 const settle = (b, scene) => Math.max(b.start, b.end - (scene.fade ?? 0.5) - 0.05);
 
+/** The scene's narration as one cleaned 48 kHz track at -14 LUFS (bin/lib/voicefx.mjs, CMO-8242). The beat wavs stay untouched. */
 function narrationTrack(dir, scene, wav) {
   const beats = scene.beats.filter((b) => b.narration);
-  const inputs = beats.flatMap((b) => ["-i", join(dir, "audio", `beat${b.n}.wav`)]);
-  const filters = beats.map((b, i) => `[${i}:a]aresample=48000,adelay=${Math.round((b.start + (b.voiceAt ?? 0)) * 1000)}:all=1[a${i}]`);
-  const total = scene.beats.at(-1).end;
-  const graph = `${filters.join(";")};${beats.map((_, i) => `[a${i}]`).join("")}amix=inputs=${beats.length}:normalize=0,apad,atrim=0:${total}[mix]`;
-  run("ffmpeg", ["-y", "-v", "error", ...inputs, "-filter_complex", graph, "-map", "[mix]", "-c:a", "pcm_s16le", wav]);
+  const m = mixNarration(beats.map((b) => join(dir, "audio", `beat${b.n}.wav`)), beats.map((b) => (b.start + (b.voiceAt ?? 0)) * 1000), scene.beats.at(-1).end, wav);
+  log(`voice: cleaned and set to ${LOUDNESS.I} LUFS (was ${m.I} LUFS, true peak ${m.TP} dBTP)`);
 }
 
 const stamp = (s) => `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0").replace(".", ",")}`;
@@ -324,11 +323,13 @@ async function renderCut({ label, loaded, stem, poster }, { serveUrl, dest, fps,
     onProgress: ({ progress }) => { const p = Math.floor(progress * 20); if (p !== last) { last = p; log(`render ${label} ${p * 5}%`); } } });
   const file = join(dest, `${stem}.mp4`);
   const vf = [blur > 1 ? `tmix=frames=${blur},fps=${fps}` : null, "scale=in_range=full:out_range=tv"].filter(Boolean).join(",");
-  run("ffmpeg", ["-y", "-v", "error", "-i", raw, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k", "-shortest"] : ["-an"]),
+  run("ffmpeg", ["-y", "-v", "error", "-i", raw, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", ...aacArgs(), "-shortest"] : ["-an"]),
     "-vf", vf, "-c:v", "libx264", "-profile:v", "high", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-color_range", "tv", "-r", String(fps), "-movflags", "+faststart", file]);
   if (!draft && label === "master") {
-    run("ffmpeg", ["-y", "-v", "error", "-i", file, "-vf", "fps=30", "-c:v", "libx264", "-profile:v", "high", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
-      "-preset", "slow", "-pix_fmt", "yuv420p", ...(audio ? ["-c:a", "aac", "-b:a", "128k"] : ["-an"]), "-movflags", "+faststart", join(dest, `${scene.name}-linkedin.mp4`)]);
+    // Audio from the narration wav, not the master's AAC: one AAC generation instead of two (CMO-8242).
+    run("ffmpeg", ["-y", "-v", "error", "-i", file, ...(audio ? ["-i", audio, "-map", "0:v", "-map", "1:a", ...aacArgs(), "-shortest"] : ["-an"]),
+      "-vf", "fps=30", "-c:v", "libx264", "-profile:v", "high", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
+      "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart", join(dest, `${scene.name}-linkedin.mp4`)]);
   }
   run("ffmpeg", ["-y", "-v", "error", "-ss", String(scene.poster ?? settle(scene.beats[0], scene)), "-i", file, "-frames:v", "1", join(dest, poster)]);
   return file;

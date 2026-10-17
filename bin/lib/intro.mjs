@@ -4,6 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { aacArgs } from "./voicefx.mjs";
 
 const ENCODERS = { h264: "libx264", hevc: "libx265" };
 
@@ -60,7 +61,7 @@ export function introConcatArgs({ intro, master, out, info }) {
     "-y", "-v", "error", "-i", intro, "-i", master,
     ...(silence ? ["-f", "lavfi", "-t", String(info.intro.duration), "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"] : []),
     "-filter_complex", [...video, ...audio, join2].join(";"),
-    "-map", "[v]", ...(m.hasAudio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"] : ["-an"]),
+    "-map", "[v]", ...(m.hasAudio ? ["-map", "[a]", ...aacArgs()] : ["-an"]),
     "-c:v", ENCODERS[m.codec] ?? "libx264", "-crf", "18", "-preset", "slow", "-pix_fmt", "yuv420p", "-r", String(m.fps), "-movflags", "+faststart",
     out,
   ];
