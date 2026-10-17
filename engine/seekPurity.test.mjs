@@ -85,8 +85,24 @@ const FLOW_BEAT = {
     notes: [{ id: "footer", text: "Research framing", at: 5, until: 20 }], layouts: { square: FLOW_LAYOUT },
   },
 };
+const DUAL_BEAT = {
+  ...PLAIN_BEAT, timeline: {
+    vars: { bond: { value: "$27B" } },
+    axis: { from: 2025, to: 2049, startLabel: "2025", endLabel: "2049", at: 0.5, endAt: 4, note: { text: "illustrative, to scale", at: 4.5 } },
+    lanes: [{ id: "bond", label: "Bond", at: 0 }, { id: "lease", label: "Lease", at: 0.2 }],
+    spread: { base: 90, dur: 1.2, steps: [{ at: 5, px: 200 }, { at: 8, px: 340 }] },
+    bar: { lane: "bond", draw: [1, 4], chips: [{ text: "{bond.value} of bonds", at: 0.3 }] },
+    blocks: { lane: "lease", years: 4, label: "4 yrs", items: [{ at: 5 }, { at: 5.5, fill: 6.5 }, { at: 6, fill: 7 }], note: { text: "up to 20 years total", at: 6.5 } },
+    playhead: { at: 6, dur: 2 },
+    brackets: [{ kind: "span", from: 0, to: 1, label: "Per one source", draw: [6.5, 7.5] }, { kind: "ticks", label: "Per another source", draw: [6.8, 7.6] }],
+    chip: { text: "Sources differ", at: 7 },
+    gap: { label: "Mismatch, not a forecast", fromBlock: 1, at: 6.5 },
+    captions: [{ at: 0, until: 9, lines: ["Two clocks."], source: "Source: test" }],
+    footer: { text: "Research framing, not investment advice", at: 6 },
+  },
+};
 const INTRO_BEAT = { ...PLAIN_BEAT, end: 6.5, wordmark: "EV Advisory", byline: "Esteban V.", series: "Episode 03", head: null };
-const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT };
+const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT, DualTimeline: DUAL_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -104,6 +120,7 @@ const CASES = {
   GrowLine: ["<GrowLine />"],
   IntroSequence: ["<IntroSequence />"],
   FlowNetwork: ["<FlowNetwork />"],
+  DualTimeline: ["<DualTimeline />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
