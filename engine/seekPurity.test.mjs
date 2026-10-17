@@ -116,8 +116,13 @@ const LEDGER_BEAT = {
     footer: { text: "Research framing, not investment advice", at: 4 },
   },
 };
+const UIX_BEAT = {
+  ...PLAIN_BEAT, end: 12, voiceAt: 0.4, voice: 9, eyebrow: "Eyebrow", caption: "A caption.", product: "Product", tile: { letter: "G", tone: "accent" }, tiles: [{ letter: "A", label: "One" }, { letter: "B", label: "Two" }],
+  source: "Source: test", steps: ["Step one", "Step two"],
+  panel: { type: "flow", title: "Window", tag: "Illustrative", from: { title: "Big", meta: "m" }, to: { title: "Small", meta: "m" }, label: "teaches" },
+};
 const INTRO_BEAT = { ...PLAIN_BEAT, end: 6.5, wordmark: "EV Advisory", byline: "Esteban V.", series: "Episode 03", head: null };
-const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT, DualTimeline: DUAL_BEAT, LedgerRows: LEDGER_BEAT };
+const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT, DualTimeline: DUAL_BEAT, LedgerRows: LEDGER_BEAT, UiExplainer: UIX_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -137,6 +142,7 @@ const CASES = {
   FlowNetwork: ["<FlowNetwork />"],
   DualTimeline: ["<DualTimeline />"],
   LedgerRows: ["<LedgerRows />"],
+  UiExplainer: ["<UiTitle />", "<UiScreen />", "<UiSteps />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
