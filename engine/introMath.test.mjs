@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { REF_SECONDS, TREND, WINDOWS, cycle, easeOut, introState, layoutFor, pathOf, smooth, trendPoints, visibleTrend } from "./introMath.js";
+import { REF_SECONDS, TREND, WORDMARK_EM, WINDOWS, cycle, easeOut, introState, layoutFor, pathOf, smooth, trendPoints, visibleTrend } from "./introMath.js";
 
 test("smooth and easeOut hold 0 before, 1 after, and never decrease", () => {
   for (const fn of [smooth, easeOut]) {
@@ -104,4 +104,28 @@ test("cycle repeats and stays in 0..1; pathOf writes an M then L path", () => {
 
 test("introState rejects a non-positive duration", () => {
   assert.throws(() => introState(0.5, 0));
+});
+
+test("portrait layout: head on top, wordmark and rule inside the side margins, trend lower (CMO-8185)", () => {
+  for (const [w, h] of [[1080, 1920], [720, 1280], [2160, 3840]]) {
+    const L = layoutFor(w, h);
+    const wordEnd = L.left + L.wordSize * WORDMARK_EM;
+    assert.ok(L.left >= L.margin, `${w}x${h} wordmark starts inside the left margin`);
+    assert.ok(wordEnd <= w - L.margin, `${w}x${h} wordmark end ${wordEnd} runs past the right margin ${w - L.margin}`);
+    assert.ok(L.rule.x + L.rule.len <= w - L.margin, `${w}x${h} rule inside the margin`);
+    const wordTop = L.wordBase - L.wordSize * 1.05;
+    assert.ok(L.head.cy + L.head.r < wordTop - L.series.size, `${w}x${h} head bottom clears the series label and wordmark`);
+    assert.ok(L.head.cy - L.head.r >= L.margin, "head inside the top margin");
+    assert.ok(L.head.cx - L.head.r >= L.margin && L.head.cx + L.head.r <= w - L.margin, "head inside the side margins");
+    assert.ok(L.byline.y < L.band.y0, "byline sits above the trend band");
+    assert.ok(L.band.y1 <= h - L.margin, "trend band inside the bottom margin");
+    assert.ok(L.band.x0 >= 64 * L.k && w - L.band.x1 >= 64 * L.k);
+  }
+});
+
+test("landscape layout is unchanged by the portrait branch", () => {
+  const L = layoutFor(1920, 1080);
+  assert.equal(L.left, 140);
+  assert.equal(L.wordSize, 168);
+  assert.equal(L.head.cx, 1920 - 140 - 190);
 });

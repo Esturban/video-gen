@@ -50,18 +50,35 @@ export const WORDMARK_EM = 5.55;
 export function layoutFor(W, H) {
   if (!(W > 0) || !(H > 0)) throw new Error(`layoutFor needs a positive size, got ${W} x ${H}`);
   const k = Math.min(W, H) / 1080;
+  const margin = 90 * k; // clear of the frame gate's 64 px safe margin
+  if (H > W) return portraitLayout(W, H, k, margin);
   const left = 140 * k;
   const wordSize = 168 * k;
   const wordBase = 0.5 * H;
   const headR = 190 * k;
   const head = { cx: W - 140 * k - headR, cy: 0.43 * H, r: headR };
-  const margin = 90 * k; // clear of the frame gate's 64 px safe margin
   const band = { x0: margin, x1: W - margin, y0: 0.68 * H, y1: 0.94 * H };
+  return blockLayout({ k, margin, left, wordSize, wordBase, head, band, H });
+}
+
+/** Wordmark block pieces below the head, shared by both orientations. */
+function blockLayout({ k, margin, left, wordSize, wordBase, head, band, H }) {
   const rule = { x: left, y: wordBase + 46 * k, len: wordSize * WORDMARK_EM };
   const byline = { x: left, y: rule.y + 84 * k, size: 46 * k };
   const series = { x: left, y: wordBase - wordSize * 0.98, size: 30 * k };
   const gridYs = [0.1, 0.18, 0.74, 0.82, 0.9].map((f) => f * H);
   return { k, margin, left, wordSize, wordBase, head, band, rule, byline, series, gridYs };
+}
+
+/** Portrait (H > W), CMO-8185: head slot centred on top, the wordmark block below it sized to fit the side margins, the trend band lower. */
+function portraitLayout(W, H, k, margin) {
+  const left = 1.2 * margin;
+  const wordSize = Math.min(168 * k, (W - 2 * left) / WORDMARK_EM);
+  const headR = Math.min(230 * k, (W - 2 * margin) / 2);
+  const head = { cx: W / 2, cy: 0.24 * H, r: headR };
+  const wordBase = 0.5 * H;
+  const band = { x0: margin, x1: W - margin, y0: 0.68 * H, y1: 0.94 * H };
+  return blockLayout({ k, margin, left, wordSize, wordBase, head, band, H });
 }
 
 /** Polyline of the trend in px for a band. */

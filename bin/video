@@ -18,7 +18,7 @@ import { costLog, readRegistry, registryTouch, requireTokens, writeRegistry } fr
 import { KIT, sceneWebpackOverride } from "./lib/webpack-override.mjs";
 import { resolveVariant, variantFileName, variantSizes } from "./lib/variants.mjs";
 import { parseRange, rangeFrames } from "./lib/range.mjs";
-import { introMp4, prependIntro } from "./lib/intro.mjs";
+import { introFileFor, prependIntro } from "./lib/intro.mjs";
 import { postFor } from "./lib/post.mjs";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -194,10 +194,17 @@ function gate(dir, paths, standalone = false) {
   log(`  REVIEW BY EYE before handing to EV (DEV-7364):\n${MANUAL_REVIEW.map((m) => `    - ${m}`).join("\n")}\n    - flicker: constant frame rate, no duplicate frames (checked after render below)`);
 }
 
-/** The rendered intro mp4 for scene.intro, from the consumer's real out/ folder (a --out scratch render has no intro). Fails before any render time is spent. */
-function introFor(scene, paths) {
-  if (!scene.intro) return null;
-  try { return introMp4(scene.intro, join(paths.root, "out")); } catch (e) { return fail(e.message); }
+/** Every output that gets the intro (CMO-8185): the master, the 30 fps LinkedIn cut (not in --draft) and each variant, with its size. */
+function introOutputs(scene, cuts, draft) {
+  const size = (c) => c.loaded.scene.size ?? [1920, 1080];
+  const [master, ...variants] = cuts;
+  return [{ label: "master", size: size(master) }, ...(draft ? [] : [{ label: "linkedin", size: size(master) }]), ...variants.map((c) => ({ label: c.label, size: size(c) }))];
+}
+
+/** The pre-rendered intro mp4 for each output, from the consumer's real out/ folder (a --out scratch render has no intro). Fails before any render time is spent. */
+function introsFor(scene, paths, outputs) {
+  if (!scene.intro) return [];
+  try { return outputs.map((o) => ({ ...o, intro: introFileFor(scene.intro, join(paths.root, "out"), o) })); } catch (e) { return fail(e.message); }
 }
 
 /** Write post.md beside the mp4 (CMO-8170). A scene with no aha or post fields is skipped with a one-line notice; a rule violation exits 2. */
@@ -224,7 +231,6 @@ async function render(dir, flags, paths, tokens) {
   gate(dir, paths);
   if (hasNarration(JSON.parse(readFileSync(join(dir, "scene.json"), "utf8")))) voiceStep(dir, false); // raw file: narrated beats may have no times until the voice step writes them
   const timed = loadScene(dir, paths.brandDirs);
-  const introFile = introFor(timed.scene, paths);
   const fps = flags.draft ? 30 : Number(flags.fps ?? 60);
   const blur = flags.draft ? 1 : Number(flags.blur ?? 2);
   if (!(fps > 0 && blur >= 1 && Number.isInteger(blur))) fail("--fps must be > 0 and --blur a whole number >= 1");
@@ -240,6 +246,7 @@ async function render(dir, flags, paths, tokens) {
   // The master first, then each variant as its own composition from the same bundle, beats and narration (CMO-7577).
   const cuts = [{ label: "master", loaded, stem: `${scene.name}${draft}`, poster: "poster.png" },
     ...variantSizes(scene).map(({ name }) => ({ label: name, loaded: { ...loaded, scene: resolveVariant(scene, name) }, stem: `${variantFileName(scene.name, name)}${draft}`, poster: `poster-${name}.png` }))];
+  const intros = introsFor(scene, paths, introOutputs(scene, cuts, Boolean(flags.draft)));
   const files = [];
   for (const cut of cuts) files.push(await renderCut(cut, { serveUrl, dest, fps, blur, audio, draft: Boolean(flags.draft) }));
   const master = files[0];
@@ -254,7 +261,12 @@ async function render(dir, flags, paths, tokens) {
   }
   log(`done in ${minutes.toFixed(1)} min`);
   for (const f of files) console.log(f);
-  if (introFile) { const joined = prependIntro(master, introFile); log(`intro: ${scene.intro} put in front of the master (master untouched)`); console.log(joined); }
+  for (const o of intros) {
+    const source = o.label === "linkedin" ? join(dest, `${scene.name}-linkedin.mp4`) : files[o.label === "master" ? 0 : cuts.findIndex((c) => c.label === o.label)];
+    const joined = prependIntro(source, o.intro);
+    log(`intro: ${basename(o.intro)} put in front of ${o.label} (source untouched)`);
+    console.log(joined);
+  }
   writePost(scene, dest);
   // Frame gate and caption sync on every cut, each with its own contact sheet next to the master; all are reported before any FAIL exits.
   const failures = cuts.flatMap((cut, i) => {

@@ -1,6 +1,6 @@
 // Branded intro include (CMO-8170): scene field "intro": "brand/intro" names a folder under scenes/. After the master renders,
 // the pre-rendered intro mp4 (<consumer>/out/<intro>/) is put in front of it, re-encoded to the master's size, fps and codec.
-// The master is never touched; the result is <name>-with-intro.mp4 beside it.
+// The master is never touched; each result is <stem>-with-intro.mp4 beside its source (master, -linkedin, -9x16), CMO-8185.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -15,12 +15,26 @@ export function parseRate(rate) {
   return d ? n / d : n;
 }
 
-/** The rendered intro mp4 for a scene's intro ref: <outRoot>/<ref>/intro.mp4, else <leaf>.mp4. Throws a message that says what to run. */
-export function introMp4(ref, outRoot) {
+/** The rendered intro mp4 for a scene's intro ref: <outRoot>/<ref>/intro.mp4, else <leaf>.mp4; with a variant name, <leaf>-<variant>.mp4 (intro-9x16.mp4). Throws a message that says what to run. */
+export function introMp4(ref, outRoot, variant = null) {
   const folder = join(outRoot, ref);
-  const found = ["intro.mp4", `${basename(ref)}.mp4`].map((f) => join(folder, f)).find(existsSync);
+  const leaf = basename(ref);
+  const names = variant ? [`${leaf}-${variant}.mp4`] : ["intro.mp4", `${leaf}.mp4`];
+  const found = names.map((f) => join(folder, f)).find(existsSync);
   if (found) return found;
-  throw new Error(`intro "${ref}" has no rendered mp4 in ${folder} (looked for intro.mp4): render it first with bin/video render ${ref} --tokens 0`);
+  const how = variant ? `a native ${variant} intro: add "variants": {"${variant}": {"size": [w, h]}} to the intro scene and render it` : `render it first with bin/video render ${ref} --tokens 0`;
+  throw new Error(`intro "${ref}" has no rendered mp4 in ${folder} (looked for ${names.join(", ")}): ${how}`);
+}
+
+/**
+ * The intro that matches one output's aspect (CMO-8185). output is { label, size: [w, h] }; the master and LinkedIn cut are 16:9.
+ * A portrait output needs its own native intro (<leaf>-<label>.mp4) and fails rather than letterbox the 16:9 one;
+ * a landscape or square variant uses its own intro when rendered, else the 16:9 one scaled to fit.
+ */
+export function introFileFor(ref, outRoot, { label, size }) {
+  const [w, h] = size;
+  if (label === "master" || label === "linkedin") return introMp4(ref, outRoot);
+  try { return introMp4(ref, outRoot, label); } catch (e) { if (h > w) throw e; return introMp4(ref, outRoot); }
 }
 
 /** Size, fps, codec, audio and duration of a media file, from ffprobe. */

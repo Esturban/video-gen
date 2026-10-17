@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { introConcatArgs, introMp4, parseRate, probeMedia, prependIntro, withIntroPath } from "./intro.mjs";
+import { introConcatArgs, introFileFor, introMp4, parseRate, probeMedia, prependIntro, withIntroPath } from "./intro.mjs";
 
 test("withIntroPath puts -with-intro beside the master", () => {
   assert.equal(withIntroPath("/o/a/vid.mp4"), "/o/a/vid-with-intro.mp4");
@@ -73,4 +73,48 @@ test("prependIntro joins a real intro and master, matching the master, leaving t
   assert.equal(after.hasAudio, true);
   assert.ok(Math.abs(after.duration - 3) < 0.3, `duration ${after.duration}`);
   assert.deepEqual(probeMedia(join(d, "master.mp4")), before);
+});
+
+test("introMp4 with a variant name reads <leaf>-<variant>.mp4 and says which one is missing", () => {
+  const out = mkdtempSync(join(tmpdir(), "intro-var-"));
+  mkdirSync(join(out, "brand", "intro"), { recursive: true });
+  writeFileSync(join(out, "brand", "intro", "intro.mp4"), "x");
+  assert.throws(() => introMp4("brand/intro", out, "9x16"), /intro-9x16\.mp4/);
+  writeFileSync(join(out, "brand", "intro", "intro-9x16.mp4"), "x");
+  assert.equal(introMp4("brand/intro", out, "9x16"), join(out, "brand", "intro", "intro-9x16.mp4"));
+});
+
+test("introFileFor picks the intro that matches each output's aspect (CMO-8185)", () => {
+  const out = mkdtempSync(join(tmpdir(), "intro-pick-"));
+  mkdirSync(join(out, "brand", "intro"), { recursive: true });
+  for (const f of ["intro.mp4", "intro-9x16.mp4"]) writeFileSync(join(out, "brand", "intro", f), "x");
+  const wide = join(out, "brand", "intro", "intro.mp4");
+  const tall = join(out, "brand", "intro", "intro-9x16.mp4");
+  assert.equal(introFileFor("brand/intro", out, { label: "master", size: [1920, 1080] }), wide);
+  assert.equal(introFileFor("brand/intro", out, { label: "linkedin", size: [1920, 1080] }), wide);
+  assert.equal(introFileFor("brand/intro", out, { label: "9x16", size: [1080, 1920] }), tall);
+  assert.equal(introFileFor("brand/intro", out, { label: "1x1", size: [1080, 1080] }), wide);
+});
+
+test("a portrait output with no native intro fails instead of letterboxing the 16:9 one", () => {
+  const out = mkdtempSync(join(tmpdir(), "intro-nopt-"));
+  mkdirSync(join(out, "brand", "intro"), { recursive: true });
+  writeFileSync(join(out, "brand", "intro", "intro.mp4"), "x");
+  assert.throws(() => introFileFor("brand/intro", out, { label: "9x16", size: [1080, 1920] }), /intro-9x16\.mp4/);
+});
+
+test("a native vertical intro is concatenated at the master size", () => {
+  const master = { width: 1080, height: 1920, fps: "60/1", codec: "h264", hasAudio: true, duration: 50 };
+  const intro = { width: 1080, height: 1920, fps: "60/1", codec: "h264", hasAudio: false, duration: 6.5 };
+  const s = introConcatArgs({ intro: "i", master: "m", out: "o", info: { master, intro } }).join(" ");
+  assert.match(s, /scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920/);
+  assert.match(s, /concat=n=2:v=1:a=1/);
+});
+
+test("LinkedIn and 9x16 outputs are named <stem>-with-intro, 30 fps kept for LinkedIn", () => {
+  assert.equal(withIntroPath("/o/a/vid-linkedin.mp4"), "/o/a/vid-linkedin-with-intro.mp4");
+  assert.equal(withIntroPath("/o/a/vid-9x16.mp4"), "/o/a/vid-9x16-with-intro.mp4");
+  const s = introConcatArgs({ intro: "i", master: "m", out: "o", info: { master: { ...MASTER, fps: "30/1" }, intro: INTRO_SILENT } }).join(" ");
+  assert.match(s, /fps=30\/1/);
+  assert.match(s, /-r 30\/1/);
 });
