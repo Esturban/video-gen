@@ -70,8 +70,23 @@ const SKETCH_BEAT = {
     { t: "count", x: 960, y: 900, to: 48000, size: 120, anchor: "middle", at: [6, 9] },
   ],
 };
+const FLOW_LAYOUT = {
+  size: [1440, 1440], zone: [64, 64, 1376, 1000], r: 70, anchors: { A: [0.3, 0.5], B: [0.7, 0.5] }, wait: { A: [0, 0.5], B: [1, 0.5] },
+  caption: { x: 64, y: 1060, w: 1200, headPx: 44, chipPx: 28, sourceY: 1370, sourcePx: 26 }, notes: { footer: { x: 64, y: 1410, px: 24 } }, big: { place: "below", px: 100 },
+};
+const FLOW_BEAT = {
+  ...PLAIN_BEAT, network: {
+    vars: { fig: { value: "~215bp", asOf: "Aug 9, 2026" } },
+    nodes: [{ id: "A", appear: 0, enter: 1 }, { id: "B", appear: 0.3, enter: 1, lines: ["Bond +", "credit"] }],
+    edges: [{ id: "ab", from: "A", to: "B", style: "dotted", usd: 43e9, at: 1.5, value: "$43B", kind: "debt", chip: "chip" }, { id: "ba", from: "B", to: "A", style: "dashed", usd: 13e9, at: 3, open: true, bend: 0.3, value: "$13B" }],
+    steps: [{ name: "a", at: 1, dur: 0.9 }, { name: "b", at: 6, dur: 0.7, keep: ["A"], dim: 0.4, scale: { A: 1.4 } }],
+    glows: [{ ids: ["A"], kind: "warm", at: 5, until: 20 }, { ids: ["B"], kind: "cool", at: 5, until: 20 }], ghosts: [{ id: "A", at: 6, until: 9, scale: 1.4 }], ripples: [{ ids: ["A"], at: 6, until: 9 }],
+    captions: [{ at: 5, until: 9, lines: [{ text: "Insure it" }], big: { text: "{fig.value}", near: "A" }, chip: "four names", source: "CDS, {fig.asOf}" }],
+    notes: [{ id: "footer", text: "Research framing", at: 5, until: 20 }], layouts: { square: FLOW_LAYOUT },
+  },
+};
 const INTRO_BEAT = { ...PLAIN_BEAT, end: 6.5, wordmark: "EV Advisory", byline: "Esteban V.", series: "Episode 03", head: null };
-const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT };
+const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -88,6 +103,7 @@ const CASES = {
   OfferExplainer: ["<OfferExplainer />"],
   GrowLine: ["<GrowLine />"],
   IntroSequence: ["<IntroSequence />"],
+  FlowNetwork: ["<FlowNetwork />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
