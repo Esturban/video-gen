@@ -101,8 +101,23 @@ const DUAL_BEAT = {
     footer: { text: "Research framing, not investment advice", at: 6 },
   },
 };
+const LEDGER_BEAT = {
+  ...PLAIN_BEAT, ledger: {
+    vars: { r1: { value: "$6.6B round", asOf: "Oct 2, 2024" } },
+    heads: { label: "Deal and round headline (whole round)", chip: "MGX", slot: "MGX share", at: 0 },
+    guides: { at: 0.2, step: 0.1 },
+    rows: [
+      { label: "Row one", meta: "{r1.asOf} · {r1.value}", at: 1, chip: { text: "MGX", litAt: 4 }, slot: { state: "empty", emptyLabel: ["no verified", "amount"], labelAt: 6 } },
+      { label: "Row two", meta: "Jan 2026 · $20B round", at: 2, chip: { text: "MGX", litAt: 4.6 }, slot: { state: "empty", emptyLabel: ["no verified", "amount"], labelAt: 6.4 } },
+    ],
+    focus: { row: 1, at: 7, until: 9, dim: 0.4, pulse: true },
+    badge: { text: "2 deals", at: 3, until: 5 },
+    captions: [{ at: 0, until: 9, lines: ["Two deals."], source: "Source: test" }],
+    footer: { text: "Research framing, not investment advice", at: 4 },
+  },
+};
 const INTRO_BEAT = { ...PLAIN_BEAT, end: 6.5, wordmark: "EV Advisory", byline: "Esteban V.", series: "Episode 03", head: null };
-const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT, DualTimeline: DUAL_BEAT };
+const BEATS = { IntroSequence: INTRO_BEAT, Sketch: SKETCH_BEAT, FillMeter: METER_BEAT, DataStory: DATA_BEAT, UiDemo: UI_BEAT, OfferExplainer: OFFER_BEAT, GrowLine: GROW_BEAT, FlowNetwork: FLOW_BEAT, DualTimeline: DUAL_BEAT, LedgerRows: LEDGER_BEAT };
 
 // engine file (without extension) -> the parts it draws, as JSX source over the imported names
 const CASES = {
@@ -121,6 +136,7 @@ const CASES = {
   IntroSequence: ["<IntroSequence />"],
   FlowNetwork: ["<FlowNetwork />"],
   DualTimeline: ["<DualTimeline />"],
+  LedgerRows: ["<LedgerRows />"],
 };
 const NOT_PARTS = new Set(["beat", "index", "Video", "OfferSteps", "OfferShell"]); // contexts, the composition root, and pieces drawn inside OfferExplainer: no part of their own to seek
 
