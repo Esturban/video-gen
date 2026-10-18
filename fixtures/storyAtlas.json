@@ -1,0 +1,420 @@
+{
+ "cities": {
+  "tunja": [
+   -73.36,
+   5.53
+  ],
+  "paris": [
+   2.35,
+   48.86
+  ],
+  "portland": [
+   -122.68,
+   45.52
+  ],
+  "melbourne": [
+   144.96,
+   -37.81
+  ],
+  "barcelona": [
+   2.17,
+   41.39
+  ],
+  "riyadh": [
+   46.72,
+   24.69
+  ]
+ },
+ "timeMap": {
+  "now": [
+   [
+    0,
+    7
+   ],
+   [
+    7,
+    21
+   ],
+   [
+    21,
+    33
+   ],
+   [
+    33,
+    47
+   ],
+   [
+    47,
+    63
+   ],
+   [
+    63,
+    83
+   ]
+  ],
+  "was": [
+   [
+    0,
+    10
+   ],
+   [
+    10,
+    24
+   ],
+   [
+    24,
+    38
+   ],
+   [
+    38,
+    54
+   ],
+   [
+    54,
+    70
+   ],
+   [
+    70,
+    90
+   ]
+  ]
+ },
+ "globe": {
+  "x": 540,
+  "keys": [
+   [
+    0,
+    34,
+    18,
+    330,
+    900
+   ],
+   [
+    9.5,
+    8,
+    14,
+    350,
+    890
+   ],
+   [
+    13.5,
+    -73.4,
+    -3.5,
+    1250,
+    800
+   ],
+   [
+    22,
+    -71,
+    -1,
+    1330,
+    800
+   ],
+   [
+    25,
+    -38,
+    30,
+    560,
+    800
+   ],
+   [
+    28,
+    2.35,
+    48.86,
+    2600,
+    800
+   ],
+   [
+    37.5,
+    2.35,
+    48.86,
+    2800,
+    800
+   ],
+   [
+    40.3,
+    -112,
+    40,
+    760,
+    820
+   ],
+   [
+    45.6,
+    -106,
+    38,
+    700,
+    820
+   ]
+  ],
+  "pins": [
+   {
+    "city": "paris",
+    "at": 0.8,
+    "until": 10.6
+   },
+   {
+    "city": "tunja",
+    "at": 12.8,
+    "until": 29
+   },
+   {
+    "city": "paris",
+    "at": 26.8,
+    "until": 40
+   },
+   {
+    "city": "portland",
+    "at": 40.4,
+    "until": 46.2
+   }
+  ],
+  "trails": [
+   {
+    "a": "tunja",
+    "b": "paris",
+    "start": 1.0,
+    "dur": 1.8,
+    "end": 10.8
+   },
+   {
+    "a": "paris",
+    "b": "riyadh",
+    "start": 1.3,
+    "dur": 1.6,
+    "end": 10.8
+   },
+   {
+    "a": "portland",
+    "b": "paris",
+    "start": 1.6,
+    "dur": 1.8,
+    "end": 10.8
+   },
+   {
+    "a": "riyadh",
+    "b": "melbourne",
+    "start": 1.9,
+    "dur": 1.8,
+    "end": 10.8
+   },
+   {
+    "a": "paris",
+    "b": "tunja",
+    "start": 2.2,
+    "dur": 1.8,
+    "end": 10.8
+   },
+   {
+    "a": "tunja",
+    "b": "paris",
+    "start": 21.2,
+    "dur": 5.6,
+    "end": 29,
+    "width": 5
+   },
+   {
+    "a": "paris",
+    "b": "portland",
+    "start": 38.4,
+    "dur": 2.2,
+    "end": 45.8,
+    "width": 4
+   }
+  ]
+ },
+ "flat": {
+  "rotate": -12,
+  "baseScale": 188,
+  "center": [
+   540,
+   820
+  ],
+  "target": [
+   540,
+   930
+  ],
+  "zoom": {
+   "from": 53.9,
+   "to": 56.6,
+   "scale": 3000
+  },
+  "focus": "riyadh",
+  "trails": [
+   {
+    "a": "tunja",
+    "b": "paris",
+    "start": 46.4,
+    "dur": 0.8
+   },
+   {
+    "a": "paris",
+    "b": "portland",
+    "start": 46.6,
+    "dur": 0.8
+   },
+   {
+    "a": "paris",
+    "b": "barcelona",
+    "start": 47.0,
+    "dur": 0.6,
+    "lift": 0.6
+   },
+   {
+    "a": "paris",
+    "b": "melbourne",
+    "start": 47.3,
+    "dur": 1.2,
+    "lift": 0.18
+   },
+   {
+    "a": "tunja",
+    "b": "riyadh",
+    "start": 52.9,
+    "dur": 1.1,
+    "bright": true
+   },
+   {
+    "a": "paris",
+    "b": "riyadh",
+    "start": 53.0,
+    "dur": 0.9,
+    "bright": true
+   },
+   {
+    "a": "portland",
+    "b": "riyadh",
+    "start": 53.1,
+    "dur": 1.2,
+    "bright": true,
+    "lift": 0.2
+   },
+   {
+    "a": "melbourne",
+    "b": "riyadh",
+    "start": 53.2,
+    "dur": 1.0,
+    "bright": true
+   }
+  ],
+  "dimTrails": [
+   52.8,
+   53.6
+  ],
+  "pins": {
+   "cities": [
+    "tunja",
+    "paris",
+    "portland",
+    "barcelona",
+    "melbourne"
+   ],
+   "at": 46.4,
+   "step": 0.3
+  },
+  "focusPinAt": 54.0,
+  "tags": {
+   "show": [
+    47.4,
+    53.2
+   ],
+   "step": 0.5,
+   "items": [
+    {
+     "city": "paris",
+     "name": "Paris",
+     "sub": "15-minute city",
+     "dx": -46,
+     "dy": -118,
+     "align": "right"
+    },
+    {
+     "city": "barcelona",
+     "name": "Barcelona",
+     "sub": "superblocks",
+     "dx": -46,
+     "dy": 34,
+     "align": "right"
+    },
+    {
+     "city": "melbourne",
+     "name": "Melbourne",
+     "sub": "20-minute neighbourhoods",
+     "dx": 40,
+     "dy": -130,
+     "align": "right"
+    }
+   ]
+  }
+ },
+ "highlights": [
+  {
+   "a3": "COL",
+   "a": 12.4,
+   "b": 24.6
+  },
+  {
+   "a3": "FRA",
+   "a": 25.2,
+   "b": 38.6
+  },
+  {
+   "a3": "USA",
+   "a": 39.2,
+   "b": 54.6
+  },
+  {
+   "a3": "COL",
+   "a": 46.3,
+   "b": 54.6
+  },
+  {
+   "a3": "FRA",
+   "a": 46.4,
+   "b": 54.6
+  },
+  {
+   "a3": "ESP",
+   "a": 47.1,
+   "b": 54.6
+  },
+  {
+   "a3": "AUS",
+   "a": 47.6,
+   "b": 54.6
+  },
+  {
+   "a3": "SAU",
+   "a": 53.0,
+   "b": 70.5,
+   "ink": "teal"
+  }
+ ],
+ "label": {
+  "city": "tunja",
+  "text": "Tunja, Colombia",
+  "show": [
+   11.2,
+   15.3
+  ]
+ },
+ "phases": {
+  "dim": [
+   28.2,
+   37.6
+  ],
+  "dimBy": 0.8,
+  "toFlat": [
+   45.3,
+   46.3
+  ],
+  "flatDim": [
+   57,
+   59
+  ],
+  "flatDimTo": 0.28,
+  "flatOut": [
+   68.6,
+   70
+  ]
+ }
+}

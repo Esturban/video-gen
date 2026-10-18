@@ -21,8 +21,8 @@ import { parseRange, rangeFrames } from "./lib/range.mjs";
 import { introFileFor, prependIntro } from "./lib/intro.mjs";
 import { postFor } from "./lib/post.mjs";
 import { aacArgs, LOUDNESS, mixNarration } from "./lib/voicefx.mjs";
+import { browserFor } from "./lib/browser.mjs";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const STALE_DAYS = 60;
 const DASHES = /[\u2013\u2014]/; // en and em dash, as escapes so this file carries neither
 
@@ -153,7 +153,7 @@ async function bundleOnce(dir, name) {
 async function selectFor(serveUrl, { scene, brand }, fps, render = null) {
   const { selectComposition } = await import("@remotion/renderer");
   const inputProps = { scene: render ? { ...scene, render } : scene, brand, fps }; // render = { fps, blur } lets a scene snap its text clock to the output frame (engine/crispTime.js)
-  const browserExecutable = existsSync(CHROME) ? CHROME : null;
+  const browserExecutable = browserFor(scene, existsSync); // bin/lib/browser.mjs: desktop Chrome, or the pinned shell when the scene asks
   const composition = await selectComposition({ serveUrl, id: "Video", inputProps, browserExecutable });
   return { serveUrl, inputProps, composition, browserExecutable };
 }
