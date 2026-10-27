@@ -23,7 +23,7 @@ type Caption = {
   key: string; align: string;
   rows: { key: string; text: string; x: number; y: number; px: number; role: string; weight: number; op: number }[];
   chip: { lines: string[]; px: number; x: number; y: number; op: number } | null;
-  source: { text: string; x: number; y: number; px: number; op: number } | null;
+  source: { text: string; lines: string[]; x: number; y: number; px: number; op: number } | null;
   big: { text: string; near: string; op: number } | null;
 };
 
@@ -113,8 +113,11 @@ export const FlowNetwork: React.FC = () => {
       })}
       {F.edges.map((e: { id: string; dot: { at: V2; op: number } | null; width: number }) => e.dot && <circle key={`${e.id}-d`} cx={e.dot.at[0]} cy={e.dot.at[1]} r={Math.max(7 * s, e.width * 0.8)} fill={col(pal.dot)} opacity={e.dot.op} />)}
 
-      {F.nodes.map((n: { id: string; x: number; y: number; r: number; op: number }) => (
-        <circle key={n.id} cx={n.x} cy={n.y} r={n.r} fill={c.card} stroke={c.ink} strokeWidth={3 * s} opacity={n.op} />
+      {F.nodes.map((n: { id: string; style: string; x: number; y: number; r: number; op: number }) => (
+        n.style === "unknown"
+          // CMO-8237: hollow (paper, not card) with a dashed rim, so the node reads as empty, not as one more holder
+          ? <circle key={n.id} cx={n.x} cy={n.y} r={n.r} fill={brand.background} stroke={c.ink} strokeWidth={3 * s} strokeDasharray={`${12 * s} ${10 * s}`} opacity={n.op} />
+          : <circle key={n.id} cx={n.x} cy={n.y} r={n.r} fill={c.card} stroke={c.ink} strokeWidth={3 * s} opacity={n.op} />
       ))}
       {F.glows.map((g: { key: string; kind: string; x: number; y: number; r: number; op: number }) => (
         <circle key={`${g.key}-ring`} cx={g.x} cy={g.y} r={g.r + 11 * s} fill="none" stroke={col(pal[g.kind])} strokeWidth={6 * s} opacity={g.op} />
@@ -153,7 +156,7 @@ export const FlowNetwork: React.FC = () => {
             {cap.rows.map((r) => <text key={r.key} x={r.x} y={r.y} textAnchor={anchor} fontSize={r.px} fontWeight={r.weight} fill={r.role === "small" ? c.inkSoft : c.ink} opacity={r.op} {...halo(10 * s)} {...font}>{r.text}</text>)}
             {cap.chip && captionChip(cap.chip, anchor)}
             {big && cap.big && <text x={bx} y={bY} textAnchor={place === "right" ? "start" : place === "left" ? "end" : "middle"} fontSize={bigPx} fontWeight={600} fill={col(pal.warm)} opacity={cap.big.op} {...halo(bigPx * BIG_HALO)} {...font}>{cap.big.text}</text>}
-            {cap.source && <text x={cap.source.x} y={cap.source.y} textAnchor={anchor} fontSize={cap.source.px} fontWeight={500} fill={c.inkSoft} opacity={cap.source.op} {...halo(8 * s)} {...font}>{cap.source.text}</text>}
+            {cap.source && <text textAnchor={anchor} fontSize={cap.source.px} fontWeight={500} fill={c.inkSoft} opacity={cap.source.op} {...halo(8 * s)} {...font}>{cap.source.lines.map((l, i) => <tspan key={i} x={cap.source!.x} y={cap.source!.y - (cap.source!.lines.length - 1 - i) * cap.source!.px * 1.2}>{l}</tspan>)}</text>}
           </g>
         );
       })}

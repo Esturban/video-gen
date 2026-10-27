@@ -227,3 +227,23 @@ test("glows pulse at or under 1 Hz, ripples and ghosts follow their nodes", () =
   for (const rp of r.ripples) assert.ok(rp.x === b.x && rp.r >= b.r);
   assert.equal(frameAt(CFG, 1920, 1080, 8).ghosts.length, 1);
 });
+
+test("node style: unknown passes through to the frame, plain is the default, anything else is refused (CMO-8237)", () => {
+  const cfg = { ...CFG, nodes: CFG.nodes.map((n) => (n.id === "C" ? { ...n, style: "unknown" } : n)) };
+  const f = frameAt(cfg, 1920, 1080, 6);
+  assert.equal(f.nodes.find((n) => n.id === "C").style, "unknown", "the empty node keeps its style");
+  assert.equal(f.nodes.find((n) => n.id === "A").style, "plain", "a node with no style is plain");
+  const bad = { ...CFG, nodes: CFG.nodes.map((n) => (n.id === "C" ? { ...n, style: "hollow" } : n)) };
+  assert.throws(() => validateConfig(bad), /node C style "hollow"/);
+});
+
+test("a long source line wraps to the caption width and grows upward from sourceY (CMO-8237)", () => {
+  const long = "$18B: press reports, 2025 (secondary). PIMCO named as buyer: release, Oct 21, 2025";
+  const cfg = { ...CFG, captions: CFG.captions.map((c, i) => (i === 0 ? { ...c, source: long } : c)) };
+  const tall = frameAt(cfg, 1080, 1920, 2).captions[0].source;
+  assert.ok(tall.lines.length >= 2, "800 px wide caption box cannot hold it on one line");
+  assert.equal(tall.lines.join(" "), long, "wrapping keeps every word");
+  assert.equal(tall.y, 1000, "the last line sits on sourceY, so extra lines go up, never into the footer below");
+  const short = frameAt(CFG, 1920, 1080, 2).captions[0].source;
+  assert.deepEqual(short.lines, ["Source: test"], "a short source stays one line");
+});

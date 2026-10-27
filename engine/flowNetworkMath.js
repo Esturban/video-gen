@@ -7,6 +7,7 @@
 // The force-directed relaxation is a fixed-iteration solver started from the step's anchors: no randomness, no state between frames.
 import { clamp, eased, mix, tween } from "./motionMath.js";
 
+export const NODE_STYLES = ["plain", "unknown"]; // unknown (CMO-8237): a hollow dashed circle, for a holder the sources do not show
 export const ENTER_S = 0.9; // a node slides from its waiting spot to its place in the graph over this long
 export const APPEAR_S = 0.6; // fade-in of a node label in the opening scatter
 export const ACTIVATE_S = 0.5; // a node brightens from WAIT_OPACITY to full once it gets its first edge
@@ -183,7 +184,7 @@ export function validateConfig(cfg) {
   if (!cfg.layouts || !Object.keys(cfg.layouts).length) fail("config has no layouts");
   const finite = (v, where) => { if (!Number.isFinite(v)) fail(`${where} must be a finite number of seconds, got ${v}`); };
   const ids = new Set();
-  for (const n of cfg.nodes) { if (ids.has(n.id)) fail(`node id "${n.id}" is used twice`); ids.add(n.id); finite(n.enter, `node ${n.id} enter`); }
+  for (const n of cfg.nodes) { if (ids.has(n.id)) fail(`node id "${n.id}" is used twice`); ids.add(n.id); finite(n.enter, `node ${n.id} enter`); if (n.style !== undefined && !NODE_STYLES.includes(n.style)) fail(`node ${n.id} style "${n.style}" is not one of ${NODE_STYLES.join(", ")}`); }
   const known = (id, where) => { if (!ids.has(id)) fail(`${where} names node "${id}", which is not in nodes`); };
   const edgeIds = new Set();
   for (const e of cfg.edges) {
@@ -268,7 +269,7 @@ export function nodesAt(cfg, L, s, targets, t) {
     const appear = eased(t, n.appear ?? 0, (n.appear ?? 0) + APPEAR_S);
     const first = firstEdgeAt(cfg, n.id);
     const activeOp = Number.isFinite(first) ? mix(WAIT_OPACITY, 1, eased(t, first, first + ACTIVATE_S)) : WAIT_OPACITY;
-    return { id: n.id, lines: n.lines ?? [n.id], x, y, r: L.r * s * scale, scale, look, op: appear * activeOp * look, textOp: appear * Math.max(activeOp * look, TEXT_FLOOR) };
+    return { id: n.id, style: n.style ?? "plain", lines: n.lines ?? [n.id], x, y, r: L.r * s * scale, scale, look, op: appear * activeOp * look, textOp: appear * Math.max(activeOp * look, TEXT_FLOOR) };
   });
 }
 
@@ -324,7 +325,10 @@ export function captionsAt(cfg, L, s, tc, vars) {
       }
     }
     const chip = c.chip ? { lines: wrapText(fillVars(c.chip, vars), (box.w - 48) * s, box.chipPx * s), px: box.chipPx * s, x: box.x * s, y: y + 20 * s, op: window01(tc, c.at + (c.chipDelay ?? 0.5), c.until) } : null;
-    const source = c.source ? { text: fillVars(c.source, vars), x: box.x * s, y: (box.sourceY ?? C.sourceY) * s, px: (box.sourcePx ?? C.sourcePx) * s, op: vis } : null;
+    const srcPx = (box.sourcePx ?? C.sourcePx) * s;
+    const srcText = c.source ? fillVars(c.source, vars) : "";
+    // CMO-8237: a long source wraps to the caption width; the last line stays on sourceY so extra lines grow up, away from the footer
+    const source = c.source ? { text: srcText, lines: wrapText(srcText, box.w * s, srcPx), x: box.x * s, y: (box.sourceY ?? C.sourceY) * s, px: srcPx, op: vis } : null;
     const big = c.big ? { text: fillVars(c.big.text, vars), near: c.big.near, op: window01(tc, c.at + (c.big.delay ?? 0), c.until) } : null;
     return [{ key: `c${ci}`, align: box.align ?? "start", rows, chip, source, big }];
   });
